@@ -1,0 +1,9 @@
+# 构建产物
+/target
+**/*.rs.bk
+
+# 文档子仓：将来用 git submodule 挂进来，挂上之前不进源码历史
+/project-memory
+
+# 临时产物
+/tmp-doc

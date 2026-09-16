@@ -1,0 +1,15 @@
+[package]
+name = "assets-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "assets"
+path = "src/main.rs"
+
+[dependencies]
+assets-core = { workspace = true }
+
+[dev-dependencies]
+# 端到端测试收尾要删掉自己建的一次性注册表子键
+winreg = "0.56.0"
