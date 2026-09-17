@@ -394,7 +394,12 @@ fn init_is_idempotent_and_doctor_sees_the_hook() {
     assert!(layout.hook_dir.join("hydrate.ps1").is_file());
     assert!(layout.hook_dir.join("emit-sh.ps1").is_file());
     assert!(layout.hook_dir.join("hydrate.sh").is_file());
-    assert!(layout.skill_file.is_file());
+    assert!(layout.skill_dir.join("SKILL.md").is_file());
+    assert!(layout
+        .skill_dir
+        .join("references")
+        .join("errors.md")
+        .is_file());
 
     let second = init::run(&layout).unwrap();
     for step in &second.steps {

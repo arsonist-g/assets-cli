@@ -20,6 +20,7 @@ pub const USAGE_VAR: &str =
     "printf '%s' \"$VALUE\" | assets var set --platform <名称> [--account <别名>] --term <术语>";
 pub const USAGE_DOCTOR: &str = "assets doctor [--json]";
 pub const USAGE_INIT: &str = "assets init [--json]";
+pub const USAGE_SKILL: &str = "assets skill install [--json]";
 
 /// 成功结果：`text` 写 stdout，`code` 是退出码（只有 doctor 会非 0）。
 pub struct Outcome {
@@ -180,6 +181,31 @@ pub fn init(tokens: &[String]) -> Result<Outcome> {
         init::render_markdown(&report)
     };
     Ok(Outcome::ok(text))
+}
+
+pub fn skill(tokens: &[String]) -> Result<Outcome> {
+    let (verb, rest) = tokens
+        .split_first()
+        .ok_or_else(|| CoreError::usage(format!("缺少动词\n用法：{USAGE_SKILL}")))?;
+    match verb.as_str() {
+        "install" => {
+            let args = Args::parse(rest, USAGE_SKILL, &[], &["json"])?;
+            args.expect_positional(0, USAGE_SKILL)?;
+            let layout = Layout::detect()?;
+            let report = init::Report {
+                steps: vec![init::install_skill(&layout)?],
+            };
+            let text = if args.has("json") {
+                init::render_json(&report)?
+            } else {
+                init::render_markdown(&report)
+            };
+            Ok(Outcome::ok(text))
+        }
+        other => Err(CoreError::usage(format!(
+            "未知动词：{other}\n用法：{USAGE_SKILL}"
+        ))),
+    }
 }
 
 fn meta_from(args: &Args) -> MetaPatch {

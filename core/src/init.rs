@@ -128,17 +128,25 @@ fn install_profile_blocks(layout: &Layout) -> Result<Step> {
     })
 }
 
-fn install_skill(layout: &Layout) -> Result<Step> {
-    let outcome = write_file(&layout.skill_file, SKILL_CONTENT)?;
+/// 只装 skill 包到 `~/.agents/skills/assets/`，逐文件幂等。
+/// `assets init` 的第三步与独立命令 `assets skill install` 走的是同一个函数。
+pub fn install_skill(layout: &Layout) -> Result<Step> {
+    let mut result = StepResult::Existing;
+    let mut detail = Vec::new();
+    for (relative, content) in SKILL_FILES {
+        // 逐段 join：常量里的路径用 /，在 Windows 上不要显示出混用的分隔符。
+        let path = relative
+            .split('/')
+            .fold(layout.skill_dir.clone(), |dir, part| dir.join(part));
+        let outcome = write_file(&path, content)?;
+        result = result.merge(outcome);
+        detail.push(format!("{}（{}）", path.display(), outcome.label()));
+    }
     Ok(Step {
         id: "skill",
-        title: "skill 描述",
-        result: outcome,
-        detail: vec![format!(
-            "{}（{}）",
-            layout.skill_file.display(),
-            outcome.label()
-        )],
+        title: "skill 包",
+        result,
+        detail,
     })
 }
 
@@ -267,41 +275,25 @@ if command -v powershell.exe >/dev/null 2>&1 && [ -f "$HOME/.assets-cli/emit-sh.
 fi
 "#;
 
-const SKILL_CONTENT: &str = r#"---
-name: assets
-description: 本机登记的凭证资产台账（多平台 / 多账号，平台由用户自定义）。当任务需要某个平台的 API 令牌、代理或接口地址时用它：变量名形如 ASSETS_CLI_<平台>_<账号别名>_<术语>（平台级为 ASSETS_CLI_<平台>_<术语>）；先跑 `assets list` 看有什么，值已在当前会话的环境里，直接引用 $VAR。
----
-
-# assets：本机资产台账
-
-## 先看清单
-
-- `assets list` 是清单的唯一真相：只出变量名与元数据，**不出值**。
-- `assets list --platform <名称>` 只看一个平台；再加 `--account <别名>` 只看一个条目（必须与 `--platform` 同用）。
-- 退出码 **2 = 该平台 / 条目没登记过**，0 = 登记过（哪怕一个账号都没有）。判断"我有没有这个平台的资产"就看退出码。
-
-## 命名规则（变量名不手写）
-
-- 账号级：`ASSETS_CLI_<平台>_<账号别名>_<术语>`；平台级：`ASSETS_CLI_<平台>_<术语>`。
-- 平台名 / 别名 / 术语：只允许 `A-Z a-z 0-9 _`，各自不超过 64 字符；输出一律大写。
-- 连通性的固定术语：账号级 `PROXY`（代理）、平台级 `API_BASE_URL`（接口地址）。没有声明就是没有配置。
-- 拿不准变量名时先 `assets list` 确认，不要凭猜。
-
-## 用值
-
-- 值已经在会话环境里，直接引用，例如 `curl -H "Authorization: Bearer $ASSETS_CLI_GITHUB_WORK_API_TOKEN" ...`。
-- **禁止打印或回显值**：不要 `echo $VAR`、不要 `printenv` / `env` 全量 dump、不要把值写进文件、日志、提交信息或回复里。
-- 值的时新性由 shell 启动钩子保证：人刚改过的值，你的下一条命令就是新的，不需要重启任何东西。
-
-## 改台账（可增可改，不可删）
-
-- 写值：`printf '%s' "$VALUE" | assets var set --platform <名称> [--account <别名>] --term <术语>`（值只从 stdin 进）。
-- 新增：`assets platform add <名称>`；`assets account add --platform <名称> --alias <别名> [--email ... --purpose ... --note ... --host ... --user ...]`。
-- 修改：`assets account edit`（同一批选项，只改给出的字段，给空串即清空）；`assets platform rename <旧名> <新名>`、`assets account rename --platform <名称> --alias <旧别名> <新别名>`（级联重算变量名）。
-- **删除不是你的动作**：CLI 里没有删除平台、删除条目、删除声明、恢复快照的命令 —— 那是人自己的操作，不要试图绕过。
-
-## 自检
-
-- 值看着不对、或怀疑钩子失效时跑 `assets doctor`：退出码 7 = 有检查没过（钩子缺失就跑 `assets init`，会话不新鲜就重开 shell）。
-- 退出码表：0 成功 / 2 用法或引用不存在 / 3 校验失败 / 4 存储失败 / 5 冲突 / 6 预算超限 / 7 自检未通过。
-"#;
+/// 要安装的 skill 包：相对 skill 目录的路径 + 文案。
+/// 文案是仓库 skill/ 下的真文件，编译期嵌进二进制，改文案不需要动 Rust。
+pub const SKILL_FILES: &[(&str, &str)] = &[
+    ("SKILL.md", include_str!("../../skill/SKILL.md")),
+    ("skill-zh.md", include_str!("../../skill/skill-zh.md")),
+    (
+        "references/install-and-config.md",
+        include_str!("../../skill/references/install-and-config.md"),
+    ),
+    (
+        "references/install-and-config-zh.md",
+        include_str!("../../skill/references/install-and-config-zh.md"),
+    ),
+    (
+        "references/errors.md",
+        include_str!("../../skill/references/errors.md"),
+    ),
+    (
+        "references/errors-zh.md",
+        include_str!("../../skill/references/errors-zh.md"),
+    ),
+];

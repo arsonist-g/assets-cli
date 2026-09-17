@@ -256,6 +256,22 @@ fn every_command_has_a_working_success_path() {
         json.stdout
     );
     assert!(!json.stdout.contains(SECRET), "JSON 清单同样不带值");
+
+    let skill = env.run(&["skill", "install"], None);
+    assert_eq!(skill.code, 0, "{}", skill.stderr);
+    assert!(skill.stdout.contains("skill 包"), "{}", skill.stdout);
+    let skill_dir = env.home.join(".agents").join("skills").join("assets");
+    assert!(skill_dir.join("SKILL.md").is_file());
+    assert!(skill_dir.join("skill-zh.md").is_file());
+    assert!(skill_dir.join("references").join("errors.md").is_file());
+
+    let skill_again = env.run(&["skill", "install"], None);
+    assert_eq!(skill_again.code, 0, "{}", skill_again.stderr);
+    assert!(
+        !skill_again.stdout.contains("（新建）") && !skill_again.stdout.contains("（已修复）"),
+        "第二次必须全部报已存在：{}",
+        skill_again.stdout
+    );
 }
 
 #[test]
@@ -263,6 +279,8 @@ fn exit_code_2_covers_usage_and_missing_references() {
     let env = Env::new("code2");
     assert_eq!(env.run(&[], None).code, 2);
     assert_eq!(env.run(&["nonsense"], None).code, 2);
+    assert_eq!(env.run(&["skill"], None).code, 2);
+    assert_eq!(env.run(&["skill", "nonsense"], None).code, 2);
     assert_eq!(env.run(&["list", "--account", "work"], None).code, 2);
     assert_eq!(env.run(&["list", "--platform", "nope"], None).code, 2);
     assert_eq!(env.run(&["list", "--bogus"], None).code, 2);
@@ -351,18 +369,23 @@ fn init_is_idempotent_and_doctor_passes_afterwards() {
         .join("PowerShell")
         .join("Microsoft.PowerShell_profile.ps1")
         .is_file());
-    assert!(env
-        .home
-        .join(".agents")
-        .join("skills")
-        .join("assets")
-        .join("SKILL.md")
+    let skill_dir = env.home.join(".agents").join("skills").join("assets");
+    assert!(skill_dir.join("SKILL.md").is_file());
+    assert!(skill_dir.join("skill-zh.md").is_file());
+    assert!(skill_dir
+        .join("references")
+        .join("install-and-config.md")
         .is_file());
+    assert!(skill_dir.join("references").join("errors.md").is_file());
 
     let second = env.run(&["init"], None);
     assert_eq!(second.code, 0, "{}", second.stderr);
     let existing = second.stdout.matches("（已存在）").count();
-    assert_eq!(existing, 7, "第二次每个落点都要报已存在：{}", second.stdout);
+    assert_eq!(
+        existing, 12,
+        "第二次每个落点都要报已存在：{}",
+        second.stdout
+    );
 
     let doctor = env.run(&["doctor"], None);
     assert_eq!(doctor.code, 0, "{}{}", doctor.stderr, doctor.stdout);
@@ -439,6 +462,7 @@ fn help_lists_the_command_surface_without_touching_anything() {
         "assets var set",
         "assets doctor",
         "assets init",
+        "assets skill install",
     ] {
         assert!(run.stdout.contains(expected), "帮助里缺 {expected}");
     }

@@ -157,7 +157,8 @@ pub struct Layout {
     pub bashrc: PathBuf,
     /// Git Bash 登录 shell 读的 profile：`.bash_profile` → `.bash_login` → `.profile`。
     pub bash_login_profile: PathBuf,
-    pub skill_file: PathBuf,
+    /// skill 包目录（assets init 落整包：入口 + 中文对照 + references/）。
+    pub skill_dir: PathBuf,
 }
 
 impl Layout {
@@ -181,11 +182,7 @@ impl Layout {
                 .join("Microsoft.PowerShell_profile.ps1"),
             bashrc: home.join(".bashrc"),
             bash_login_profile,
-            skill_file: home
-                .join(".agents")
-                .join("skills")
-                .join("assets")
-                .join("SKILL.md"),
+            skill_dir: home.join(".agents").join("skills").join("assets"),
             home,
         }
     }
