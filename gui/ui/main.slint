@@ -219,6 +219,7 @@ export component AppWindow inherits Window {
                         heading: root.ov-heading;
                         summary: root.ov-summary;
                         lines: root.ov-lines;
+                        new-platform => { root.new-platform(); }
                     }
                     if root.view == "platform" || root.view == "account" : DetailPane {
                         x: 0; y: 0;

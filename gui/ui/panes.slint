@@ -104,6 +104,16 @@ export component OverviewPane inherits Rectangle {
                     overflow: elide;
                 }
             }
+
+            // S1 动作条：登记平台是总览屏的主操作 —— 左树只做选择，新增资产从这里进。
+            HorizontalLayout {
+                spacing: Tokens.space-2;
+                alignment: start;
+                PrimaryButton {
+                    label: "登记平台";
+                    clicked => { root.new-platform(); }
+                }
+            }
         }
     }
 }
