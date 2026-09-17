@@ -1,4 +1,4 @@
-# 构建 assets-cli：cargo build --release；-Install 交给 install.ps1
+﻿# 构建 assets-cli：cargo build --release；-Install 交给 install.ps1
 # （放进用户级目录 -> 确保目录在用户 PATH 上 -> 跑一次 assets init）
 param([switch]$Install)
 $ErrorActionPreference = 'Stop'
