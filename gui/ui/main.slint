@@ -148,6 +148,7 @@ export component AppWindow inherits Window {
                         alignment: start;
                         StatusDot {
                             tone: root.doctor-tone == "fail" ? Tokens.danger : (root.doctor-tone == "warn" ? Tokens.warning : Tokens.success);
+                            cross-axis-self-alignment: center;
                         }
                         Text {
                             text: root.doctor-label;
@@ -169,12 +170,18 @@ export component AppWindow inherits Window {
                     snap-touch := TouchArea { clicked => { root.nav("snapshots"); } }
                     background: snap-touch.has-hover ? Tokens.surface-sunken : transparent;
                     border-radius: Tokens.radius-md;
-                    Text {
-                        text: "快照";
-                        color: Tokens.text-muted;
-                        font-size: Tokens.text-caption;
-                        vertical-alignment: center;
-                        horizontal-alignment: center;
+                    // 与「自检」入口同构：文字得待在行布局里才拿得到行高 —— 在自然尺寸的盒子里
+                    // vertical-alignment 是空操作，文字会贴顶。
+                    HorizontalLayout {
+                        padding-left: Tokens.space-2;
+                        padding-right: Tokens.space-2;
+                        alignment: start;
+                        Text {
+                            text: "快照";
+                            color: Tokens.text-muted;
+                            font-size: Tokens.text-caption;
+                            vertical-alignment: center;
+                        }
                     }
                 }
             }
@@ -265,6 +272,7 @@ export component AppWindow inherits Window {
                             VerticalLayout {
                                 padding: Tokens.space-5;
                                 spacing: Tokens.space-3;
+                                alignment: start;
                                 ScreenTitle { text: "快照"; }
                                 Text { text: "每次写入前自动留一份全量副本；超 10MB 按最旧的先删。恢复 = 让状态等于那一时刻。"; color: Tokens.text-muted; font-size: Tokens.text-caption; wrap: word-wrap; }
                                 for s[j] in root.sn-lines : Rectangle {
@@ -292,6 +300,7 @@ export component AppWindow inherits Window {
                             VerticalLayout {
                                 padding: Tokens.space-5;
                                 spacing: Tokens.space-3;
+                                alignment: start;
                                 ScreenTitle { text: "自检"; }
                                 Text {
                                     text: root.ck-ok ? "四项全通过" : "有检查未通过：钩子缺失就跑 assets init，会话不新鲜就重开 shell。";
@@ -305,7 +314,7 @@ export component AppWindow inherits Window {
                                     HorizontalLayout {
                                         spacing: Tokens.space-2;
                                         alignment: start;
-                                        StatusDot { tone: c.ok ? Tokens.success : Tokens.danger; }
+                                        StatusDot { tone: c.ok ? Tokens.success : Tokens.danger; cross-axis-self-alignment: center; }
                                         Text { text: c.id; color: Tokens.text; font-family: Tokens.font-mono; font-size: Tokens.text-body; width: 170px; vertical-alignment: center; }
                                         Text { text: c.detail; color: Tokens.text-muted; font-size: Tokens.text-caption; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
                                     }
@@ -325,6 +334,7 @@ export component AppWindow inherits Window {
                         VerticalLayout {
                             padding: Tokens.space-5;
                             spacing: Tokens.space-3;
+                            alignment: start;
                             ScreenTitle { text: "还没有任何资产"; }
                             Text { text: root.em-hint; color: Tokens.text-muted; font-size: Tokens.text-body; }
                             HorizontalLayout {
@@ -341,6 +351,7 @@ export component AppWindow inherits Window {
                         VerticalLayout {
                             padding: Tokens.space-5;
                             spacing: Tokens.space-3;
+                            alignment: start;
                             ScreenTitle { text: root.ft-heading; }
                             Text { text: root.ft-detail; color: Tokens.text; font-size: Tokens.text-body; wrap: word-wrap; }
                             HorizontalLayout {
@@ -366,7 +377,7 @@ export component AppWindow inherits Window {
                 padding-right: Tokens.space-4;
                 spacing: Tokens.space-2;
                 alignment: start;
-                if root.quota-warning : StatusDot { tone: Tokens.warning; }
+                if root.quota-warning : StatusDot { tone: Tokens.warning; cross-axis-self-alignment: center; }
                 Text {
                     text: root.foot-snapshot + " · " + root.foot-quota;
                     color: Tokens.text-muted;
@@ -415,6 +426,11 @@ export component AppWindow inherits Window {
                         border-width: 1px; border-color: Tokens.border-strong;
                         border-radius: Tokens.radius-md;
                         TextInput {
+                            x: Tokens.space-3;
+                            y: 0;
+                            width: parent.width - Tokens.space-3 * 2;
+                            height: parent.height;
+                            vertical-alignment: center;
                             text: root.cf-input;
                             single-line: true;
                             font-family: Tokens.font-mono;

@@ -29,6 +29,10 @@ export component VarName inherits HorizontalLayout {
 }
 
 // 状态点：只有图形，没有文字色（MASTER §2 规则 1）。
+//
+// 用它的行必须自己写 `cross-axis-self-alignment: center;` —— 盒布局的交叉轴默认是 stretch，
+// 固定高度（8px）的子元素会被顶到行首，而同行的文字是撑满后再居中，两者于是错位。
+// 这条属性只能写在布局子元素上，不能封进组件里（编译器会拒绝）。
 export component StatusDot inherits Rectangle {
     in property <color> tone: Tokens.success;
     width: 8px;

@@ -59,6 +59,7 @@ export component OverviewPane inherits Rectangle {
         VerticalLayout {
             padding: Tokens.space-5;
             spacing: Tokens.space-4;
+            alignment: start;
 
             ScreenTitle { text: root.heading; }
             Text { text: root.summary; color: Tokens.text-muted; font-size: Tokens.text-body; wrap: word-wrap; }
@@ -129,6 +130,7 @@ export component DetailPane inherits Rectangle {
         VerticalLayout {
             padding: Tokens.space-5;
             spacing: Tokens.space-4;
+            alignment: start;
 
             ScreenTitle { text: root.heading; }
             Text { text: root.summary; color: Tokens.text-muted; font-size: Tokens.text-body; wrap: word-wrap; }
@@ -215,6 +217,7 @@ export component FormPane inherits Rectangle {
     VerticalLayout {
         padding: Tokens.space-5;
         spacing: Tokens.space-3;
+        alignment: start;
 
         ScreenTitle { text: root.heading; }
         if root.hint != "" : Text { text: root.hint; color: Tokens.text-muted; font-size: Tokens.text-caption; }
@@ -246,7 +249,13 @@ export component FormPane inherits Rectangle {
                 background: Tokens.surface-sunken;
                 border-width: 1px; border-color: Tokens.border-strong;
                 border-radius: Tokens.radius-md;
+                // 内容层显式给几何：不给的话 TextInput 是"一行文字"的自然尺寸，会落在 32px 外框的左上角。
                 TextInput {
+                    x: Tokens.space-3;
+                    y: 0;
+                    width: parent.width - Tokens.space-3 * 2;
+                    height: parent.height;
+                    vertical-alignment: center;
                     text: root.f-term;
                     single-line: true;
                     color: Tokens.text;
@@ -266,6 +275,11 @@ export component FormPane inherits Rectangle {
                 border-width: 1px; border-color: Tokens.border-strong;
                 border-radius: Tokens.radius-md;
                 TextInput {
+                    x: Tokens.space-3;
+                    y: 0;
+                    width: parent.width - Tokens.space-3 * 2;
+                    height: parent.height;
+                    vertical-alignment: center;
                     text: root.f-value;
                     single-line: true;
                     color: Tokens.text;
@@ -293,7 +307,18 @@ export component FormPane inherits Rectangle {
                     background: Tokens.surface-sunken;
                     border-width: 1px; border-color: Tokens.border-strong;
                     border-radius: Tokens.radius-md;
-                    TextInput { text: root.f-purpose; single-line: true; color: Tokens.text; edited => { root.f-purpose = self.text; } font-size: Tokens.text-body; }
+                    TextInput {
+                        x: Tokens.space-3;
+                        y: 0;
+                        width: parent.width - Tokens.space-3 * 2;
+                        height: parent.height;
+                        vertical-alignment: center;
+                        text: root.f-purpose;
+                        single-line: true;
+                        color: Tokens.text;
+                        edited => { root.f-purpose = self.text; }
+                        font-size: Tokens.text-body;
+                    }
                 }
             }
         }
@@ -306,7 +331,18 @@ export component FormPane inherits Rectangle {
                 background: Tokens.surface-sunken;
                 border-width: 1px; border-color: Tokens.border-strong;
                 border-radius: Tokens.radius-md;
-                TextInput { text: root.f-note; single-line: true; color: Tokens.text; edited => { root.f-note = self.text; } font-size: Tokens.text-body; }
+                TextInput {
+                    x: Tokens.space-3;
+                    y: 0;
+                    width: parent.width - Tokens.space-3 * 2;
+                    height: parent.height;
+                    vertical-alignment: center;
+                    text: root.f-note;
+                    single-line: true;
+                    color: Tokens.text;
+                    edited => { root.f-note = self.text; }
+                    font-size: Tokens.text-body;
+                }
             }
         }
         if root.show-contact : HorizontalLayout {
@@ -321,7 +357,18 @@ export component FormPane inherits Rectangle {
                         background: Tokens.surface-sunken;
                         border-width: 1px; border-color: Tokens.border-strong;
                         border-radius: Tokens.radius-md;
-                        TextInput { text: root.f-email; single-line: true; color: Tokens.text; edited => { root.f-email = self.text; } font-size: Tokens.text-body; }
+                        TextInput {
+                            x: Tokens.space-3;
+                            y: 0;
+                            width: parent.width - Tokens.space-3 * 2;
+                            height: parent.height;
+                            vertical-alignment: center;
+                            text: root.f-email;
+                            single-line: true;
+                            color: Tokens.text;
+                            edited => { root.f-email = self.text; }
+                            font-size: Tokens.text-body;
+                        }
                     }
                 }
                 VerticalLayout {
@@ -332,7 +379,18 @@ export component FormPane inherits Rectangle {
                         background: Tokens.surface-sunken;
                         border-width: 1px; border-color: Tokens.border-strong;
                         border-radius: Tokens.radius-md;
-                        TextInput { text: root.f-host; single-line: true; color: Tokens.text; edited => { root.f-host = self.text; } font-size: Tokens.text-body; }
+                        TextInput {
+                            x: Tokens.space-3;
+                            y: 0;
+                            width: parent.width - Tokens.space-3 * 2;
+                            height: parent.height;
+                            vertical-alignment: center;
+                            text: root.f-host;
+                            single-line: true;
+                            color: Tokens.text;
+                            edited => { root.f-host = self.text; }
+                            font-size: Tokens.text-body;
+                        }
                     }
                 }
                 VerticalLayout {
@@ -343,7 +401,18 @@ export component FormPane inherits Rectangle {
                         background: Tokens.surface-sunken;
                         border-width: 1px; border-color: Tokens.border-strong;
                         border-radius: Tokens.radius-md;
-                        TextInput { text: root.f-user; single-line: true; color: Tokens.text; edited => { root.f-user = self.text; } font-size: Tokens.text-body; }
+                        TextInput {
+                            x: Tokens.space-3;
+                            y: 0;
+                            width: parent.width - Tokens.space-3 * 2;
+                            height: parent.height;
+                            vertical-alignment: center;
+                            text: root.f-user;
+                            single-line: true;
+                            color: Tokens.text;
+                            edited => { root.f-user = self.text; }
+                            font-size: Tokens.text-body;
+                        }
                     }
                 }
         }

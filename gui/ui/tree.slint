@@ -44,6 +44,7 @@ export component AssetTree inherits Rectangle {
                         width: 8px;
                         height: 8px;
                         border-radius: 4px;
+                        cross-axis-self-alignment: center;
                         background: row.kind == "variable" && row.has-value ? Tokens.success : transparent;
                     }
 
