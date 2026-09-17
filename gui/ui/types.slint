@@ -1,0 +1,42 @@
+// 界面与 Rust 之间传递的数据形状。
+
+// 左资产树的一行：平台 → 账号 → 变量三段缩进。
+export struct TreeRow {
+    key: string,
+    kind: string,
+    depth: int,
+    label: string,
+    meta: string,
+    platform: string,
+    account: string,
+    term: string,
+    prefix: string,
+    entity: string,
+    has-value: bool,
+}
+
+// 通用列表行：S1 总览 / S2 平台级变量 / S3 账号变量 共用。
+export struct ListLine {
+    key: string,
+    kind: string,
+    text: string,
+    prefix: string,
+    entity: string,
+    meta: string,
+    has-value: bool,
+}
+
+// S8 快照列表的一行。
+export struct SnapshotLine {
+    index: int,
+    created-at: string,
+    size: string,
+    variables: int,
+}
+
+// S10 自检的一项。
+export struct CheckLine {
+    id: string,
+    ok: bool,
+    detail: string,
+}

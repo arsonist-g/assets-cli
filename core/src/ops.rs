@@ -400,6 +400,139 @@ pub fn var_set(
 }
 
 /// 事务：建快照 → 应用注册表改动 → 落盘元数据；任一步失败整体回退。
+/// 删除一个变量声明（连带注册表里的值）。
+///
+/// 删除是人类专属动作：命令面里没有它，只有界面层调用（DEC-008）。
+pub fn var_delete(
+    ctx: &Ctx,
+    platform_name: &str,
+    account_alias: Option<&str>,
+    term: &str,
+) -> Result<String> {
+    let before = store::load(&ctx.paths)?;
+    let platform = before
+        .find_platform(platform_name)
+        .ok_or_else(|| CoreError::usage(format!("平台不存在：{platform_name}")))?;
+    let display = platform.name.clone();
+
+    let (var_name, scope) = match account_alias {
+        None => {
+            let decl = platform
+                .variables
+                .iter()
+                .find(|v| naming::normalize(&v.term) == naming::normalize(term))
+                .ok_or_else(|| CoreError::usage(format!("平台级变量不存在：{display}/{term}")))?;
+            (
+                naming::platform_var_name(&display, &decl.term)?,
+                format!("{display}（平台级）"),
+            )
+        }
+        Some(alias) => {
+            let target = platform
+                .find_account(alias)
+                .ok_or_else(|| CoreError::usage(format!("条目不存在：{display}/{alias}")))?;
+            let decl = target
+                .variables
+                .iter()
+                .find(|v| naming::normalize(&v.term) == naming::normalize(term))
+                .ok_or_else(|| {
+                    CoreError::usage(format!("变量不存在：{display}/{}/{term}", target.alias))
+                })?;
+            (
+                naming::account_var_name(&display, &target.alias, &decl.term)?,
+                format!("{display}/{}", target.alias),
+            )
+        }
+    };
+
+    let mut after = before.clone();
+    let target = after.find_platform_mut(&display).expect("平台刚查到");
+    match account_alias {
+        None => target
+            .variables
+            .retain(|v| naming::normalize(&v.term) != naming::normalize(term)),
+        Some(alias) => target
+            .find_account_mut(alias)
+            .expect("条目刚查到")
+            .variables
+            .retain(|v| naming::normalize(&v.term) != naming::normalize(term)),
+    }
+
+    commit(ctx, &before, &after, &[RegOp::Delete { name: var_name.clone() }])?;
+    Ok(format!("已删除 {scope} 的变量 {var_name}"))
+}
+
+/// 删除账号条目：只连带这个账号自己的变量（平台级变量不参与）。
+///
+/// 删除是人类专属动作：命令面里没有它，只有界面层调用（DEC-008）。
+pub fn account_delete(ctx: &Ctx, platform_name: &str, alias: &str) -> Result<String> {
+    let before = store::load(&ctx.paths)?;
+    let platform = before
+        .find_platform(platform_name)
+        .ok_or_else(|| CoreError::usage(format!("平台不存在：{platform_name}")))?;
+    let target = platform
+        .find_account(alias)
+        .ok_or_else(|| CoreError::usage(format!("条目不存在：{platform_name}/{alias}")))?;
+    let display = platform.name.clone();
+    let target_alias = target.alias.clone();
+
+    let mut names = Vec::new();
+    for decl in &target.variables {
+        names.push(naming::account_var_name(&display, &target_alias, &decl.term)?);
+    }
+    let var_count = names.len();
+
+    let mut after = before.clone();
+    if let Some(platform) = after.find_platform_mut(&display) {
+        platform
+            .accounts
+            .retain(|a| naming::normalize(&a.alias) != naming::normalize(&target_alias));
+    }
+    commit(ctx, &before, &after, &delete_ops(&names))?;
+    Ok(format!("已删除条目 {display}/{target_alias}：{var_count} 个变量"))
+}
+
+/// 删除平台：连带它的平台级变量与全部账号级变量。
+///
+/// 删除是人类专属动作：命令面里没有它，只有界面层调用（DEC-008）。
+pub fn platform_delete(ctx: &Ctx, name: &str) -> Result<String> {
+    let before = store::load(&ctx.paths)?;
+    let platform = before
+        .find_platform(name)
+        .ok_or_else(|| CoreError::usage(format!("平台不存在：{name}")))?;
+    let display = platform.name.clone();
+
+    let mut names = Vec::new();
+    for decl in &platform.variables {
+        names.push(naming::platform_var_name(&display, &decl.term)?);
+    }
+    for account in &platform.accounts {
+        for decl in &account.variables {
+            names.push(naming::account_var_name(&display, &account.alias, &decl.term)?);
+        }
+    }
+    let account_count = platform.accounts.len();
+    let var_count = names.len();
+
+    let mut after = before.clone();
+    after
+        .platforms
+        .retain(|p| naming::normalize(&p.name) != naming::normalize(&display));
+    commit(ctx, &before, &after, &delete_ops(&names))?;
+    Ok(format!(
+        "已删除平台 {display}：{account_count} 个账号 / {var_count} 个变量"
+    ))
+}
+
+/// 删除对应的注册表改动；注册表里本来就没有这个值也算成功（幂等）。
+fn delete_ops(names: &[String]) -> Vec<RegOp> {
+    names
+        .iter()
+        .map(|name| RegOp::Delete { name: name.clone() })
+        .collect()
+}
+
+/// 事务：建快照 → 应用注册表改动 → 落盘元数据；任一步失败整体回退。
 fn commit(ctx: &Ctx, before: &DataDoc, after: &DataDoc, ops: &[RegOp]) -> Result<()> {
     snapshot::create(&ctx.paths, &ctx.registry, before)?;
 

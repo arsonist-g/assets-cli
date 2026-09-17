@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use assets_core::manifest::{self, Filter};
 use assets_core::ops::{self, Ctx, MetaPatch};
 use assets_core::paths::{self, Layout, Paths};
-use assets_core::{doctor, init, snapshot, store};
+use assets_core::{doctor, init, snapshot, store, CoreError};
 use winreg::enums::HKEY_CURRENT_USER;
 use winreg::RegKey;
 
@@ -60,6 +60,108 @@ impl Drop for Fixture {
             Err(err) => panic!("一次性注册表子键（{}）删除失败：{err}", self.registry_key),
         }
     }
+}
+
+#[test]
+fn delete_removes_values_by_scope_and_never_touches_platform_level_vars() {
+    let fixture = Fixture::new("delete-scope");
+    let ctx = fixture.ctx();
+    ops::platform_add(&ctx, "cloudflare", None).unwrap();
+    ops::account_add(&ctx, "cloudflare", "main", MetaPatch::default()).unwrap();
+    ops::var_set(&ctx, "cloudflare", Some("main"), "API_TOKEN", "token-0001").unwrap();
+    ops::var_set(
+        &ctx,
+        "cloudflare",
+        None,
+        "API_BASE_URL",
+        "https://api.example.test",
+    )
+    .unwrap();
+
+    ops::account_delete(&ctx, "cloudflare", "main").unwrap();
+    assert!(ctx
+        .registry
+        .get("ASSETS_CLI_CLOUDFLARE_MAIN_API_TOKEN")
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        ctx.registry
+            .get("ASSETS_CLI_CLOUDFLARE_API_BASE_URL")
+            .unwrap()
+            .as_deref(),
+        Some("https://api.example.test")
+    );
+    assert!(!store::load(&fixture.paths)
+        .unwrap()
+        .find_platform("cloudflare")
+        .unwrap()
+        .has_account("main"));
+
+    let err = ops::account_delete(&ctx, "cloudflare", "main").unwrap_err();
+    assert!(matches!(err, CoreError::Usage(_)));
+
+    ops::platform_delete(&ctx, "cloudflare").unwrap();
+    assert!(ctx
+        .registry
+        .get("ASSETS_CLI_CLOUDFLARE_API_BASE_URL")
+        .unwrap()
+        .is_none());
+    assert!(store::load(&fixture.paths).unwrap().platforms.is_empty());
+}
+
+#[test]
+fn var_delete_drops_only_the_named_declaration() {
+    let fixture = Fixture::new("var-delete");
+    let ctx = fixture.ctx();
+    ops::platform_add(&ctx, "cf", None).unwrap();
+    ops::account_add(&ctx, "cf", "main", MetaPatch::default()).unwrap();
+    ops::var_set(&ctx, "cf", Some("main"), "AK", "ak-0001").unwrap();
+    ops::var_set(&ctx, "cf", Some("main"), "SK", "sk-0001").unwrap();
+    ops::var_set(&ctx, "cf", None, "API_BASE_URL", "https://api.example.test").unwrap();
+
+    ops::var_delete(&ctx, "cf", Some("main"), "AK").unwrap();
+    assert!(ctx.registry.get("ASSETS_CLI_CF_MAIN_AK").unwrap().is_none());
+    assert_eq!(
+        ctx.registry.get("ASSETS_CLI_CF_MAIN_SK").unwrap().as_deref(),
+        Some("sk-0001")
+    );
+
+    ops::var_delete(&ctx, "cf", None, "API_BASE_URL").unwrap();
+    assert!(ctx
+        .registry
+        .get("ASSETS_CLI_CF_API_BASE_URL")
+        .unwrap()
+        .is_none());
+    let doc = store::load(&fixture.paths).unwrap();
+    let platform = doc.find_platform("cf").unwrap();
+    assert!(platform.variables.is_empty());
+    assert_eq!(platform.find_account("main").unwrap().variables.len(), 1);
+}
+
+#[test]
+fn snapshot_delete_removes_one_file_and_tolerates_a_missing_one() {
+    let fixture = Fixture::new("snapshot-delete");
+    let ctx = fixture.ctx();
+    ops::platform_add(&ctx, "cf", None).unwrap();
+    let doc = store::load(&fixture.paths).unwrap();
+
+    let baseline = snapshot::list(&fixture.paths).unwrap().len();
+    let file = snapshot::create(&fixture.paths, &ctx.registry, &doc).unwrap();
+    assert_eq!(snapshot::list(&fixture.paths).unwrap().len(), baseline + 1);
+
+    snapshot::delete(&fixture.paths, &file).unwrap();
+    assert_eq!(snapshot::list(&fixture.paths).unwrap().len(), baseline);
+    snapshot::delete(&fixture.paths, &file).unwrap();
+}
+
+#[test]
+fn snapshot_delete_refuses_a_file_outside_the_snapshot_directory() {
+    let fixture = Fixture::new("snapshot-delete-outside");
+    let outsider = fixture.paths.data_dir.join("data.json");
+    fs::write(&outsider, b"{}").unwrap();
+    let err = snapshot::delete(&fixture.paths, &outsider).unwrap_err();
+    assert!(matches!(err, CoreError::Storage(_)));
+    assert!(outsider.exists());
 }
 
 #[test]

@@ -5,6 +5,7 @@
 
 use std::collections::HashSet;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::error::{CoreError, Result};
@@ -96,6 +97,28 @@ pub fn list(paths: &Paths) -> Result<Vec<SnapshotInfo>> {
 /// 按默认配额滚动（删最旧的直到回到配额内），返回被删掉的文件。
 pub fn prune(paths: &Paths) -> Result<Vec<PathBuf>> {
     prune_with_quota(paths, QUOTA_BYTES)
+}
+
+/// 删掉指定的那一份快照。
+///
+/// 只接受落在快照目录里的文件：路径是调用方传回来的，边界仍要自己确认。
+/// 文件本来就不存在视为成功（幂等）——重复点删除不该报错。
+pub fn delete(paths: &Paths, file: &Path) -> Result<()> {
+    let dir = paths.snapshots_dir();
+    if file.parent() != Some(dir.as_path()) {
+        return Err(CoreError::storage(format!(
+            "拒绝删除快照目录之外的文件：{}",
+            file.display()
+        )));
+    }
+    match fs::remove_file(file) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(CoreError::storage_from(
+            &format!("快照删除失败（{}）", file.display()),
+            e,
+        )),
+    }
 }
 
 /// 按指定配额滚动（测试用；生产走 `QUOTA_BYTES`）。最新的那一份永远保留。

@@ -1,0 +1,90 @@
+import { Tokens } from "tokens.slint";
+import { ScrollView } from "std-widgets.slint";
+import { TreeRow } from "types.slint";
+import { StatusDot } from "widgets.slint";
+
+// 左资产树：固定 320px、行高 28px、直角裁剪（CONSTRAINT-006）。
+// 平台级变量直接挂在平台下、排在账号之前，行尾标「平台级」。
+export component AssetTree inherits Rectangle {
+    in property <[TreeRow]> rows;
+    in property <string> selection: "";
+    callback selected(string);
+
+    width: Tokens.width-list;
+    background: Tokens.surface;
+    border-width: 0px;
+
+    ScrollView {
+        width: 100%;
+        height: 100%;
+
+        VerticalLayout {
+            padding-top: Tokens.space-2;
+            padding-bottom: Tokens.space-2;
+            spacing: 0px;
+
+            for row[i] in root.rows : Rectangle {
+                height: 28px;
+                background: root.selection == row.key
+                    ? Tokens.selection-bg
+                    : (touch.has-hover ? Tokens.surface-sunken : transparent);
+
+                touch := TouchArea {
+                    clicked => { root.selected(row.key); }
+                }
+
+                HorizontalLayout {
+                    padding-left: Tokens.space-2 + (row.depth - 1) * Tokens.space-4;
+                    padding-right: Tokens.space-2;
+                    spacing: Tokens.space-2;
+                    alignment: start;
+
+                    // 变量行才显示值状态点；平台 / 账号行留同样宽度的空位保持对齐。
+                    Rectangle {
+                        width: 8px;
+                        height: 8px;
+                        border-radius: 4px;
+                        background: row.kind == "variable" && row.has-value ? Tokens.success : transparent;
+                    }
+
+                    if row.kind == "variable" : HorizontalLayout {
+                        spacing: 0px;
+                        Text {
+                            text: row.prefix;
+                            color: Tokens.text-muted;
+                            font-family: Tokens.font-mono;
+                            font-size: Tokens.text-body;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: row.entity;
+                            color: Tokens.text;
+                            font-family: Tokens.font-mono;
+                            font-size: Tokens.text-body;
+                            font-weight: 500;
+                            vertical-alignment: center;
+                            overflow: elide;
+                        }
+                    }
+                    if row.kind != "variable" : Text {
+                        text: row.label;
+                        color: Tokens.text;
+                        font-size: Tokens.text-body;
+                        font-weight: row.kind == "platform" ? 600 : 400;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        horizontal-stretch: 1;
+                    }
+
+                    Text {
+                        text: row.meta;
+                        color: Tokens.text-muted;
+                        font-size: Tokens.text-caption;
+                        vertical-alignment: center;
+                        horizontal-alignment: right;
+                    }
+                }
+            }
+        }
+    }
+}

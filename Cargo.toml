@@ -1,8 +1,7 @@
 [workspace]
 resolver = "2"
-members = ["core", "cli"]
+members = ["core", "cli", "gui"]
 
-# gui 是下一个任务的事，先留占位目录，不进 workspace
 
 [workspace.package]
 version = "0.1.0"

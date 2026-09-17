@@ -1,0 +1,61 @@
+// 设计令牌单一真相，与 spec/frontend-design/MASTER.md 同名对应。
+// Slint 不支持 OKLCH，故颜色用 MASTER §2 的等价 sRGB hex；浅 / 深两套值都写在这里。
+
+import { Palette } from "std-widgets.slint";
+
+export global Tokens {
+    // 主题跟随系统：深色下取深色那一列。
+    in-out property <bool> dark: Palette.color-scheme == ColorScheme.dark;
+
+    // ── 颜色 · 中性 ──
+    out property <color> surface: dark ? #131a1a : #f7fbfb;
+    out property <color> surface-raised: dark ? #1c2627 : #fdffff;
+    out property <color> surface-sunken: dark ? #0a1111 : #edf4f4;
+    out property <color> scrim: dark ? #010404 : #192424;
+    out property <color> text: dark ? #e7eced : #192424;
+    out property <color> text-muted: dark ? #98a0a1 : #515a5b;
+    out property <color> text-disabled: dark ? #505757 : #939a9a;
+    out property <color> text-on-accent: dark ? #081112 : #f8fdfd;
+    out property <color> border: dark ? #2e3738 : #cdd6d7;
+    out property <color> border-strong: dark ? #606c6c : #778383;
+
+    // ── 颜色 · 强调与状态（状态色只用于点 / 环 / 描边，不做文字色）──
+    out property <color> accent: dark ? #48b7bd : #02787d;
+    out property <color> accent-hover: dark ? #6ac9ce : #016569;
+    out property <color> accent-active: dark ? #30a4aa : #005256;
+    out property <color> selection-bg: dark ? #05383a : #ceeff1;
+    out property <color> success: dark ? #5cb572 : #298646;
+    out property <color> warning: dark ? #eba941 : #bf8101;
+    out property <color> danger: dark ? #f66d67 : #c53637;
+    out property <color> info: dark ? #6da9e7 : #3a75af;
+
+    // ── 间距（基准 8px）──
+    out property <length> space-1: 4px;
+    out property <length> space-2: 8px;
+    out property <length> space-3: 12px;
+    out property <length> space-4: 16px;
+    out property <length> space-5: 24px;
+    out property <length> space-6: 32px;
+
+    // ── 圆角（需要裁剪的容器一律直角：CONSTRAINT-006）──
+    out property <length> radius-sm: 2px;
+    out property <length> radius-md: 4px;
+    out property <length> radius-lg: 8px;
+
+    // ── 排版：只有四档字号，正文永远 14px ──
+    out property <length> text-caption: 12px;
+    out property <length> text-body: 14px;
+    out property <length> text-title: 17px;
+    out property <length> text-heading: 20px;
+
+    // ── 宽度与断点 ──
+    out property <length> width-list: 320px;
+    out property <length> width-detail-max: 880px;
+    out property <length> width-dialog: 640px;
+    out property <length> bp-compact: 984px;
+    out property <length> bp-wide: 1360px;
+
+    // ── 字体栈（CJK 由系统字体回退承载，software-renderer-systemfonts 已启用）──
+    out property <string> font-ui: "Segoe UI Variable Text";
+    out property <string> font-mono: "Cascadia Mono";
+}

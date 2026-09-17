@@ -1,4 +1,5 @@
-# assets-cli 便捷安装：把 assets.exe 放进一个用户级目录、确保该目录在用户 PATH 上，再跑一次 assets init。
+﻿# assets-cli 便捷安装：把 assets.exe 与 assets-gui.exe 放进一个用户级目录、确保该目录在用户 PATH 上，
+# 再跑一次 assets init，并给图形界面建桌面 / 开始菜单快捷方式。
 #
 # 改用户 PATH 有两条机器纪律：不用 setx（它截断到 1024 字符并把 REG_EXPAND_SZ 降级成 REG_SZ），
 # 也不要用 [Environment]::GetEnvironmentVariable('Path','User') 读回来再写回去 —— 那个读法会把
@@ -9,12 +10,15 @@ param(
     [string]$PathKey = 'Environment',
     [switch]$SkipBuild,
     [switch]$SkipInit,
+    [switch]$SkipGui,
     [switch]$Uninstall
 )
 
 $ErrorActionPreference = 'Stop'
 $repo = $PSScriptRoot
 $exeName = 'assets.exe'
+$guiName = 'assets-gui.exe'
+$shortcutName = 'assets 资产台账.lnk'
 
 $nativeSource = @(
     'using System;'
@@ -53,9 +57,36 @@ function Test-DirOnPath([string]$keyName, [string]$dir) {
     return $false
 }
 
+# 快捷方式落两处：桌面（用户直接看到）与开始菜单。都取 shell 的文件夹路径，
+# 这样桌面被重定向到 OneDrive 之类的场景也能落在真实位置。
+function Get-ShortcutPaths {
+    $paths = @()
+    $desktop = [Environment]::GetFolderPath('Desktop')
+    if ($desktop) { $paths += (Join-Path $desktop $shortcutName) }
+    $startMenu = [Environment]::GetFolderPath('StartMenu')
+    if ($startMenu) { $paths += (Join-Path (Join-Path $startMenu 'Programs') $shortcutName) }
+    return $paths
+}
+
+function New-GuiShortcut([string]$path, [string]$exe) {
+    $shell = New-Object -ComObject WScript.Shell
+    try {
+        $link = $shell.CreateShortcut($path)
+        $link.TargetPath = $exe
+        $link.WorkingDirectory = (Split-Path -Parent $exe)
+        # 图标取自 exe 内嵌的 PE 资源，不额外依赖 .ico 文件
+        $link.IconLocation = "$exe,0"
+        $link.Description = 'assets 资产台账'
+        $link.Save()
+    } finally {
+        [void][Runtime.InteropServices.Marshal]::ReleaseComObject($shell)
+    }
+}
+
 $target = [Environment]::ExpandEnvironmentVariables($Target).TrimEnd('\')
 if (-not [IO.Path]::IsPathRooted($target)) { throw "目标目录必须是绝对路径：$Target" }
 $installed = Join-Path $target $exeName
+$guiInstalled = Join-Path $target $guiName
 
 if ($Uninstall) {
     if (Test-Path -LiteralPath $installed) {
@@ -63,6 +94,18 @@ if ($Uninstall) {
         Write-Host "已移除 $installed"
     } else {
         Write-Host "没找到 $installed，无需移除"
+    }
+    if (Test-Path -LiteralPath $guiInstalled) {
+        Remove-Item -LiteralPath $guiInstalled -Force
+        Write-Host "已移除 $guiInstalled"
+    } else {
+        Write-Host "没找到 $guiInstalled，无需移除"
+    }
+    foreach ($shortcut in (Get-ShortcutPaths)) {
+        if (Test-Path -LiteralPath $shortcut) {
+            Remove-Item -LiteralPath $shortcut -Force
+            Write-Host "已移除快捷方式 $shortcut"
+        }
     }
     if (Test-DirOnPath $PathKey $target) {
         Write-Host "用户 PATH 里的 $target 保持不动：它可能还装着别的东西，删不删由你决定。要删就在 PowerShell 里跑："
@@ -102,4 +145,23 @@ if (-not $SkipInit) {
     if ($LASTEXITCODE -ne 0) { throw "assets init 失败（退出码 $LASTEXITCODE）" }
 }
 
-Write-Host '完成：新开一个 shell 后直接敲 assets 即可。'
+# GUI 与 CLI 同属一个 cargo workspace，一次 cargo build --release 会一起产出。
+if (-not $SkipGui) {
+    $guiBuilt = Join-Path $repo 'target\release\assets-gui.exe'
+    if (-not (Test-Path -LiteralPath $guiBuilt)) { throw "没找到 GUI 构建产物：$guiBuilt（别加 -SkipBuild，或者用 -SkipGui 跳过 GUI）" }
+    Copy-Item -LiteralPath $guiBuilt -Destination $guiInstalled -Force
+    Write-Host "已放入 $guiInstalled"
+
+    foreach ($shortcut in (Get-ShortcutPaths)) {
+        $dir = Split-Path -Parent $shortcut
+        if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+        New-GuiShortcut $shortcut $guiInstalled
+        Write-Host "已创建快捷方式 $shortcut"
+    }
+}
+
+if ($SkipGui) {
+    Write-Host '完成：新开一个 shell 后直接敲 assets 即可。'
+} else {
+    Write-Host '完成：新开一个 shell 后直接敲 assets 即可；图形界面在桌面与开始菜单的「assets 资产台账」。'
+}

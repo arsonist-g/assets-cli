@@ -1,0 +1,21 @@
+[package]
+name = "assets-gui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+assets-core = { workspace = true }
+serde_json = { workspace = true }
+slint = { version = "1.18", default-features = false, features = [
+    "compat-1-2",
+    "std",
+    "backend-winit",
+    "renderer-software",
+    "software-renderer-systemfonts",
+    "accessibility",
+] }
+
+[build-dependencies]
+slint-build = "1.18"
+winresource = "0.1.31"

@@ -1,0 +1,123 @@
+import { Tokens } from "tokens.slint";
+
+// 变量名的分段呈现（本产品唯一的签名元素）：
+// 常量前缀用 muted，实体段用主墨色 + 字重 500，整体等宽。
+export component VarName inherits HorizontalLayout {
+    in property <string> prefix;
+    in property <string> entity;
+    in property <length> size: Tokens.text-body;
+
+    alignment: start;
+    spacing: 0px;
+
+    Text {
+        text: root.prefix;
+        color: Tokens.text-muted;
+        font-family: Tokens.font-mono;
+        font-size: root.size;
+        vertical-alignment: center;
+    }
+    Text {
+        text: root.entity;
+        color: Tokens.text;
+        font-family: Tokens.font-mono;
+        font-size: root.size;
+        font-weight: 500;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+}
+
+// 状态点：只有图形，没有文字色（MASTER §2 规则 1）。
+export component StatusDot inherits Rectangle {
+    in property <color> tone: Tokens.success;
+    width: 8px;
+    height: 8px;
+    border-radius: 4px;
+    background: tone;
+}
+
+// 主操作按钮（强调色一屏最多出现在这里与选中行）。
+export component PrimaryButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> enabled: true;
+    callback clicked;
+    height: 32px;
+    min-width: 88px;
+    border-radius: Tokens.radius-md;
+    background: !enabled ? Tokens.border : (touch.pressed ? Tokens.accent-active : (touch.has-hover ? Tokens.accent-hover : Tokens.accent));
+
+    touch := TouchArea {
+        clicked => { if (root.enabled) { root.clicked(); } }
+    }
+    Text {
+        text: root.label;
+        color: root.enabled ? Tokens.text-on-accent : Tokens.text-disabled;
+        font-size: Tokens.text-body;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+// 次按钮：只有边界，没有底色。
+export component GhostButton inherits Rectangle {
+    in property <string> label;
+    in property <bool> enabled: true;
+    in property <bool> destructive: false;
+    callback clicked;
+    height: 32px;
+    min-width: 72px;
+    border-radius: Tokens.radius-md;
+    border-width: 1px;
+    border-color: Tokens.border-strong;
+    background: touch.has-hover ? Tokens.surface-sunken : transparent;
+
+    touch := TouchArea {
+        clicked => { if (root.enabled) { root.clicked(); } }
+    }
+    Text {
+        text: root.label;
+        color: !root.enabled ? Tokens.text-disabled : (root.destructive ? Tokens.danger : Tokens.text);
+        font-size: Tokens.text-body;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+// 分区标题（--text-title，一屏可多处）。
+export component SectionTitle inherits Text {
+    color: Tokens.text;
+    font-size: Tokens.text-title;
+    font-weight: 600;
+}
+
+// 屏幕标题（--text-heading，一屏只有一处）。
+export component ScreenTitle inherits Text {
+    color: Tokens.text;
+    font-size: Tokens.text-heading;
+    font-weight: 600;
+}
+
+// 字段行：左边字段名（caption + muted），右边值（body + ink）。
+export component FieldRow inherits HorizontalLayout {
+    in property <string> label;
+    in property <string> value;
+    height: 24px;
+    alignment: start;
+    spacing: Tokens.space-3;
+
+    Text {
+        text: root.label;
+        color: Tokens.text-muted;
+        font-size: Tokens.text-caption;
+        width: 96px;
+        vertical-alignment: center;
+    }
+    Text {
+        text: root.value == "" ? "—" : root.value;
+        color: root.value == "" ? Tokens.text-disabled : Tokens.text;
+        font-size: Tokens.text-body;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+}

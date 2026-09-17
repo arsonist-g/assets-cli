@@ -1,0 +1,367 @@
+import { Tokens } from "tokens.slint";
+import { ScrollView } from "std-widgets.slint";
+import { ListLine, CheckLine, SnapshotLine } from "types.slint";
+import { VarName, StatusDot, PrimaryButton, GhostButton, SectionTitle, ScreenTitle } from "widgets.slint";
+
+// 变量行：签名元素 + 值状态 + 操作。
+export component VarLine inherits Rectangle {
+    in property <ListLine> line;
+    in property <bool> actionable: true;
+    callback edit;
+    callback remove;
+
+    height: 32px;
+    background: touch.has-hover && actionable ? Tokens.surface-sunken : transparent;
+    touch := TouchArea { }
+
+    HorizontalLayout {
+        padding-left: Tokens.space-2;
+        padding-right: Tokens.space-2;
+        spacing: Tokens.space-2;
+        alignment: start;
+
+        VarName { prefix: line.prefix; entity: line.entity; }
+        Text {
+            text: line.has-value ? "值已就位" : "无值";
+            color: Tokens.text-muted;
+            font-size: Tokens.text-caption;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+        if actionable : GhostButton {
+            label: "改值";
+            min-width: 56px;
+            height: 24px;
+            clicked => { root.edit(); }
+        }
+        if actionable : GhostButton {
+            label: "删除";
+            destructive: true;
+            min-width: 56px;
+            height: 24px;
+            clicked => { root.remove(); }
+        }
+    }
+}
+
+// 通用请求区：把「AI 看到的样子」渲染成一屏（S1）。
+export component OverviewPane inherits Rectangle {
+    in property <string> heading;
+    in property <string> summary;
+    in property <[ListLine]> lines;
+    callback new-platform;
+
+    background: transparent;
+
+    ScrollView {
+        width: 100%;
+        height: 100%;
+        VerticalLayout {
+            padding: Tokens.space-5;
+            spacing: Tokens.space-4;
+
+            ScreenTitle { text: root.heading; }
+            Text { text: root.summary; color: Tokens.text-muted; font-size: Tokens.text-body; wrap: word-wrap; }
+
+            for line[i] in root.lines : Rectangle {
+                height: line.kind == "group" ? 32px : (line.kind == "note" ? 36px : 28px);
+                background: transparent;
+                if line.kind == "group" : Text {
+                    x: 0; y: 0;
+                    width: parent.width; height: parent.height;
+                    text: line.text;
+                    color: Tokens.text;
+                    font-size: Tokens.text-title;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                    horizontal-alignment: left;
+                    overflow: elide;
+                }
+                if line.kind == "var" : HorizontalLayout {
+                    x: 0; y: 0;
+                    width: parent.width; height: parent.height;
+                    padding-left: Tokens.space-3;
+                    spacing: Tokens.space-2;
+                    alignment: start;
+                    VarName { prefix: line.prefix; entity: line.entity; }
+                    Text {
+                        text: line.meta;
+                        color: Tokens.text-muted;
+                        font-size: Tokens.text-caption;
+                        vertical-alignment: center;
+                    }
+                }
+                if line.kind == "note" : Text {
+                    x: 0; y: 0;
+                    width: parent.width; height: parent.height;
+                    text: line.text;
+                    color: Tokens.text-muted;
+                    font-size: Tokens.text-caption;
+                    vertical-alignment: center;
+                    horizontal-alignment: left;
+                    wrap: word-wrap;
+                    overflow: elide;
+                }
+            }
+        }
+    }
+}
+
+// S2 / S3 共用：标题 + 概要 + 元数据 + 变量列表 + 动作。
+export component DetailPane inherits Rectangle {
+    in property <string> heading;
+    in property <string> summary;
+    in property <[ListLine]> lines;
+    in property <bool> can-delete: true;
+    in property <bool> can-add-account: true;
+    callback new-account;
+    callback new-var;
+    callback rename;
+    callback remove;
+    callback edit-var(string);
+    callback remove-var(string);
+
+    background: transparent;
+
+    ScrollView {
+        width: 100%;
+        height: 100%;
+        VerticalLayout {
+            padding: Tokens.space-5;
+            spacing: Tokens.space-4;
+
+            ScreenTitle { text: root.heading; }
+            Text { text: root.summary; color: Tokens.text-muted; font-size: Tokens.text-body; wrap: word-wrap; }
+
+            HorizontalLayout {
+                spacing: Tokens.space-2;
+                alignment: start;
+                PrimaryButton { label: "新增变量"; clicked => { root.new-var(); } }
+                if root.can-add-account : GhostButton { label: "新增账号"; clicked => { root.new-account(); } }
+                GhostButton { label: "改名"; clicked => { root.rename(); } }
+                if root.can-delete : GhostButton {
+                    label: "删除";
+                    destructive: true;
+                    clicked => { root.remove(); }
+                }
+            }
+
+            for line[i] in root.lines : Rectangle {
+                height: line.kind == "group" ? 30px : 32px;
+                if line.kind == "group" : SectionTitle {
+                    x: 0; y: 0;
+                    width: parent.width; height: parent.height;
+                    text: line.text;
+                    vertical-alignment: center;
+                    horizontal-alignment: left;
+                }
+                if line.kind == "field" : HorizontalLayout {
+                    x: 0; y: 0;
+                    width: parent.width; height: parent.height;
+                    spacing: Tokens.space-3;
+                    alignment: start;
+                    Text { text: line.text; color: Tokens.text-muted; font-size: Tokens.text-caption; width: 96px; vertical-alignment: center; }
+                    Text { text: line.meta == "" ? "—" : line.meta; color: Tokens.text; font-size: Tokens.text-body; vertical-alignment: center; overflow: elide; }
+                }
+                if line.kind == "account" : HorizontalLayout {
+                    x: 0; y: 0;
+                    width: parent.width; height: parent.height;
+                    spacing: Tokens.space-2;
+                    alignment: start;
+                    Text { text: line.text; color: Tokens.text; font-size: Tokens.text-body; width: 160px; vertical-alignment: center; overflow: elide; }
+                    Text { text: line.meta; color: Tokens.text-muted; font-size: Tokens.text-caption; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                }
+                if line.kind == "var" : VarLine {
+                    line: line;
+                    edit => { root.edit-var(line.key); }
+                    remove => { root.remove-var(line.key); }
+                }
+            }
+        }
+    }
+}
+
+// S4 / S5 共用的表单。
+export component FormPane inherits Rectangle {
+    in-out property <string> heading;
+    in-out property <string> hint;
+    in-out property <string> error;
+    in-out property <string> f-term;
+    in-out property <string> f-value;
+    in-out property <string> f-alias;
+    in-out property <string> f-purpose;
+    in-out property <string> f-note;
+    in-out property <string> f-email;
+    in-out property <string> f-host;
+    in-out property <string> f-user;
+    in property <bool> show-term: false;
+    in property <bool> term-readonly: false;
+    in property <string> name-label: "术语";
+    in property <bool> show-value: false;
+    /// 值的呈现方式：默认遮蔽，点「显示」才明文（只影响呈现，不改值）。
+    private property <bool> revealed: false;
+    in property <bool> show-purpose: false;
+    in property <bool> show-note: false;
+    in property <bool> show-contact: false;
+    in property <bool> show-target: false;
+    in property <string> target;
+    in property <string> preview-prefix;
+    in property <string> preview-entity;
+    callback submit;
+    callback cancel;
+
+    background: transparent;
+
+    VerticalLayout {
+        padding: Tokens.space-5;
+        spacing: Tokens.space-3;
+
+        ScreenTitle { text: root.heading; }
+        if root.hint != "" : Text { text: root.hint; color: Tokens.text-muted; font-size: Tokens.text-caption; }
+        if root.show-target : HorizontalLayout {
+            spacing: Tokens.space-3;
+            alignment: start;
+            Text { text: "归属"; color: Tokens.text-muted; font-size: Tokens.text-caption; width: 96px; vertical-alignment: center; }
+            Text { text: root.target; color: Tokens.text; font-size: Tokens.text-body; vertical-alignment: center; }
+        }
+
+        if root.show-term : HorizontalLayout {
+            spacing: Tokens.space-3;
+            alignment: start;
+            Text { text: root.name-label; color: Tokens.text-muted; font-size: Tokens.text-caption; width: 96px; vertical-alignment: center; }
+            if root.term-readonly : HorizontalLayout {
+                width: 280px; height: 32px;
+                padding-left: Tokens.space-2;
+                alignment: start;
+                Text {
+                    text: root.f-term;
+                    color: Tokens.text;
+                    font-family: Tokens.font-mono;
+                    font-size: Tokens.text-body;
+                    vertical-alignment: center;
+                }
+            }
+            if !root.term-readonly : Rectangle {
+                width: 280px; height: 32px;
+                background: Tokens.surface-sunken;
+                border-width: 1px; border-color: Tokens.border-strong;
+                border-radius: Tokens.radius-md;
+                TextInput {
+                    text: root.f-term;
+                    single-line: true;
+                    color: Tokens.text;
+                    edited => { root.f-term = self.text; }
+                    font-size: Tokens.text-body;
+                }
+            }
+        }
+
+        if root.show-value : HorizontalLayout {
+            spacing: Tokens.space-3;
+            alignment: start;
+            Text { text: "值"; color: Tokens.text-muted; font-size: Tokens.text-caption; width: 96px; vertical-alignment: center; }
+            Rectangle {
+                width: 420px; height: 32px;
+                background: Tokens.surface-sunken;
+                border-width: 1px; border-color: Tokens.border-strong;
+                border-radius: Tokens.radius-md;
+                TextInput {
+                    text: root.f-value;
+                    single-line: true;
+                    color: Tokens.text;
+                    input-type: root.revealed ? InputType.text : InputType.password;
+                    edited => { root.f-value = self.text; }
+                    font-size: Tokens.text-body;
+                }
+            }
+            GhostButton {
+                label: root.revealed ? "隐藏" : "显示";
+                min-width: 56px;
+                height: 32px;
+                clicked => { root.revealed = !root.revealed; }
+            }
+        }
+
+        if root.show-purpose : VerticalLayout {
+            spacing: Tokens.space-2;
+            HorizontalLayout {
+                spacing: Tokens.space-3;
+                alignment: start;
+                Text { text: "用途"; color: Tokens.text-muted; font-size: Tokens.text-caption; width: 96px; vertical-alignment: center; }
+                Rectangle {
+                    width: 420px; height: 32px;
+                    background: Tokens.surface-sunken;
+                    border-width: 1px; border-color: Tokens.border-strong;
+                    border-radius: Tokens.radius-md;
+                    TextInput { text: root.f-purpose; single-line: true; color: Tokens.text; edited => { root.f-purpose = self.text; } font-size: Tokens.text-body; }
+                }
+            }
+        }
+        if root.show-note : HorizontalLayout {
+            spacing: Tokens.space-3;
+            alignment: start;
+            Text { text: "备注"; color: Tokens.text-muted; font-size: Tokens.text-caption; width: 96px; vertical-alignment: center; }
+            Rectangle {
+                width: 420px; height: 32px;
+                background: Tokens.surface-sunken;
+                border-width: 1px; border-color: Tokens.border-strong;
+                border-radius: Tokens.radius-md;
+                TextInput { text: root.f-note; single-line: true; color: Tokens.text; edited => { root.f-note = self.text; } font-size: Tokens.text-body; }
+            }
+        }
+        if root.show-contact : HorizontalLayout {
+                spacing: Tokens.space-3;
+                alignment: start;
+                Text { text: "联系方式"; color: Tokens.text-muted; font-size: Tokens.text-caption; width: 96px; vertical-alignment: center; }
+                VerticalLayout {
+                    spacing: Tokens.space-1;
+                    Text { text: "邮箱"; color: Tokens.text-muted; font-size: Tokens.text-caption; }
+                    Rectangle {
+                        width: 200px; height: 32px;
+                        background: Tokens.surface-sunken;
+                        border-width: 1px; border-color: Tokens.border-strong;
+                        border-radius: Tokens.radius-md;
+                        TextInput { text: root.f-email; single-line: true; color: Tokens.text; edited => { root.f-email = self.text; } font-size: Tokens.text-body; }
+                    }
+                }
+                VerticalLayout {
+                    spacing: Tokens.space-1;
+                    Text { text: "host"; color: Tokens.text-muted; font-size: Tokens.text-caption; }
+                    Rectangle {
+                        width: 200px; height: 32px;
+                        background: Tokens.surface-sunken;
+                        border-width: 1px; border-color: Tokens.border-strong;
+                        border-radius: Tokens.radius-md;
+                        TextInput { text: root.f-host; single-line: true; color: Tokens.text; edited => { root.f-host = self.text; } font-size: Tokens.text-body; }
+                    }
+                }
+                VerticalLayout {
+                    spacing: Tokens.space-1;
+                    Text { text: "user"; color: Tokens.text-muted; font-size: Tokens.text-caption; }
+                    Rectangle {
+                        width: 200px; height: 32px;
+                        background: Tokens.surface-sunken;
+                        border-width: 1px; border-color: Tokens.border-strong;
+                        border-radius: Tokens.radius-md;
+                        TextInput { text: root.f-user; single-line: true; color: Tokens.text; edited => { root.f-user = self.text; } font-size: Tokens.text-body; }
+                    }
+                }
+        }
+
+        // 签名元素的实时预览：改术语时变量名当场变。
+        if root.show-term : VerticalLayout {
+            spacing: Tokens.space-1;
+            Text { text: "生成的变量名"; color: Tokens.text-muted; font-size: Tokens.text-caption; }
+            VarName { prefix: root.preview-prefix; entity: root.preview-entity; size: Tokens.text-body; }
+        }
+
+        if root.error != "" : Text { text: root.error; color: Tokens.danger; font-size: Tokens.text-body; }
+
+        HorizontalLayout {
+            spacing: Tokens.space-2;
+            alignment: start;
+            PrimaryButton { label: "保存"; clicked => { root.submit(); } }
+            GhostButton { label: "取消"; clicked => { root.cancel(); } }
+        }
+    }
+}

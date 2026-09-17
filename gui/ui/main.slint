@@ -1,0 +1,444 @@
+import { Tokens } from "tokens.slint";
+import { ScrollView } from "std-widgets.slint";
+import { TreeRow, ListLine, CheckLine, SnapshotLine } from "types.slint";
+import { AssetTree } from "tree.slint";
+import { OverviewPane, DetailPane, FormPane } from "panes.slint";
+import { StatusDot, PrimaryButton, GhostButton, ScreenTitle, SectionTitle } from "widgets.slint";
+
+export component AppWindow inherits Window {
+    title: "assets";
+    // 初始尺寸固定：窗口宽高参与断点判定，若让窗口尺寸反过来依赖内容首选宽度会成环。
+    width: 1100px;
+    height: 720px;
+    default-font-family: Tokens.font-ui;
+    default-font-size: Tokens.text-body;
+    background: Tokens.surface;
+
+    in-out property <string> view: "empty";
+    in property <bool> compact: self.width < Tokens.bp-compact;
+
+    // 顶部条 / 底部条
+    in property <string> data-dir: "";
+    in property <string> doctor-tone: "ok";
+    in property <string> doctor-label: "自检通过";
+    in property <string> foot-snapshot: "还没有快照";
+    in property <string> foot-quota: "配额 0.0 / 10 MB";
+    in property <bool> quota-warning: false;
+
+    // 左树
+    in property <[TreeRow]> tree: [];
+    in property <string> selection: "";
+
+    // S1
+    in property <string> ov-heading: "";
+    in property <string> ov-summary: "";
+    in property <[ListLine]> ov-lines: [];
+    // S2 / S3
+    in property <string> dt-heading: "";
+    in property <string> dt-summary: "";
+    in property <[ListLine]> dt-lines: [];
+    in property <bool> dt-can-delete: true;
+    in property <bool> dt-can-add-account: true;
+    // S4 / S5
+    in-out property <string> fm-heading: "";
+    in-out property <string> fm-hint: "";
+    in-out property <string> fm-error: "";
+    in-out property <string> fm-term: "";
+    in-out property <string> fm-value: "";
+    in-out property <string> fm-alias: "";
+    in-out property <string> fm-purpose: "";
+    in-out property <string> fm-note: "";
+    in-out property <string> fm-email: "";
+    in-out property <string> fm-host: "";
+    in-out property <string> fm-user: "";
+    in property <bool> fm-show-term: false;
+    in property <string> fm-name-label: "术语";
+    in property <bool> fm-show-value: false;
+    in property <bool> fm-show-purpose: false;
+    in property <bool> fm-show-contact: false;
+    in property <bool> fm-show-note: false;
+    in property <bool> fm-term-readonly: false;
+    in property <bool> fm-show-target: false;
+    // 每次打开表单都自增：让表单自己把上一次的输入清掉。
+    in property <string> fm-target: "";
+    in property <string> fm-preview-prefix: "";
+    in property <string> fm-preview-entity: "";
+    // S8
+    in property <[SnapshotLine]> sn-lines: [];
+    // S10
+    in property <[CheckLine]> ck-lines: [];
+    in property <bool> ck-ok: true;
+    // S11 / S12
+    in property <string> em-hint: "";
+    in property <string> ft-heading: "";
+    in property <string> ft-detail: "";
+    // 浮层
+    in property <bool> cf-open: false;
+    in property <string> cf-heading: "";
+    in property <[ListLine]> cf-lines: [];
+    in property <string> cf-confirm-label: "确认";
+    in property <bool> cf-destructive: true;
+    // S7 改名：浮层里就地输入新名，边打边刷新级联对照表。
+    in property <bool> cf-show-input: false;
+    in-out property <string> cf-input: "";
+    in property <string> cf-input-label: "";
+    in property <string> cf-error: "";
+
+    callback select(string);
+    callback nav(string);
+    callback new-platform;
+    callback new-account;
+    callback new-var;
+    callback rename;
+    callback remove;
+    callback edit-var(string);
+    callback remove-var(string);
+    callback submit-form;
+    callback cancel-form;
+    callback restore-snapshot(int);
+    callback delete-snapshot(int);
+    callback rerun-doctor;
+    callback confirm-yes;
+    callback confirm-no;
+    callback cf-input-changed(string);
+
+    VerticalLayout {
+        // 内容自身的最小几何：窗口被拖到更小时，内容按这个下界布局。
+        min-width: 900px;
+        min-height: 600px;
+        spacing: 0px;
+
+        // ── 顶部条 ──
+        Rectangle {
+            height: 40px;
+            background: Tokens.surface;
+
+            HorizontalLayout {
+                padding-left: Tokens.space-4;
+                padding-right: Tokens.space-4;
+                spacing: Tokens.space-4;
+                alignment: start;
+
+                Text {
+                    text: "assets";
+                    color: Tokens.text;
+                    font-size: Tokens.text-body;
+                    font-weight: 600;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: root.data-dir;
+                    color: Tokens.text-muted;
+                    font-size: Tokens.text-caption;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                    overflow: elide;
+                }
+
+                // 自检状态点本身就是进 S10 的入口。
+                Rectangle {
+                    height: 24px;
+                    doctor-touch := TouchArea { clicked => { root.nav("doctor"); } }
+                    background: doctor-touch.has-hover ? Tokens.surface-sunken : transparent;
+                    border-radius: Tokens.radius-md;
+                    HorizontalLayout {
+                        padding-left: Tokens.space-2;
+                        padding-right: Tokens.space-2;
+                        spacing: Tokens.space-2;
+                        alignment: start;
+                        StatusDot {
+                            tone: root.doctor-tone == "fail" ? Tokens.danger : (root.doctor-tone == "warn" ? Tokens.warning : Tokens.success);
+                        }
+                        Text {
+                            text: root.doctor-label;
+                            color: Tokens.text-muted;
+                            font-size: Tokens.text-caption;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: "›";
+                            color: Tokens.text-muted;
+                            font-size: Tokens.text-caption;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
+
+                Rectangle {
+                    height: 24px;
+                    snap-touch := TouchArea { clicked => { root.nav("snapshots"); } }
+                    background: snap-touch.has-hover ? Tokens.surface-sunken : transparent;
+                    border-radius: Tokens.radius-md;
+                    Text {
+                        text: "快照";
+                        color: Tokens.text-muted;
+                        font-size: Tokens.text-caption;
+                        vertical-alignment: center;
+                        horizontal-alignment: center;
+                    }
+                }
+            }
+        }
+        // 1px 接缝：软件渲染没有阴影，靠这条线把条与滚动内容分开。
+        Rectangle { height: 1px; background: Tokens.border; }
+
+        // ── 内容区 ──
+        HorizontalLayout {
+            spacing: 0px;
+
+            if !root.compact : AssetTree {
+                rows: root.tree;
+                selection: root.selection;
+                selected(key) => { root.select(key); }
+            }
+            if !root.compact : Rectangle {
+                width: 1px;
+                background: Tokens.border;
+            }
+
+            Rectangle {
+                background: Tokens.surface;
+                horizontal-stretch: 1;
+
+                Rectangle {
+                    x: 0; y: 0;
+                    width: min(parent.width, Tokens.width-detail-max);
+                    height: parent.height;
+                    background: transparent;
+
+                    if root.view == "overview" : OverviewPane {
+                        x: 0; y: 0;
+                        width: parent.width; height: parent.height;
+                        heading: root.ov-heading;
+                        summary: root.ov-summary;
+                        lines: root.ov-lines;
+                    }
+                    if root.view == "platform" || root.view == "account" : DetailPane {
+                        x: 0; y: 0;
+                        width: parent.width; height: parent.height;
+                        heading: root.dt-heading;
+                        summary: root.dt-summary;
+                        lines: root.dt-lines;
+                        can-delete: root.dt-can-delete;
+                        can-add-account: root.dt-can-add-account;
+                        new-account => { root.new-account(); }
+                        new-var => { root.new-var(); }
+                        rename => { root.rename(); }
+                        remove => { root.remove(); }
+                        edit-var(key) => { root.edit-var(key); }
+                        remove-var(key) => { root.remove-var(key); }
+                    }
+                    if root.view == "form" : FormPane {
+                        x: 0; y: 0;
+                        width: parent.width; height: parent.height;
+                        heading <=> root.fm-heading;
+                        hint <=> root.fm-hint;
+                        error <=> root.fm-error;
+                        f-term <=> root.fm-term;
+                        f-value <=> root.fm-value;
+                        f-alias <=> root.fm-alias;
+                        f-purpose <=> root.fm-purpose;
+                        f-note <=> root.fm-note;
+                        f-email <=> root.fm-email;
+                        f-host <=> root.fm-host;
+                        f-user <=> root.fm-user;
+                        show-term: root.fm-show-term;
+                        name-label: root.fm-name-label;
+                        show-value: root.fm-show-value;
+                        show-purpose: root.fm-show-purpose;
+                        show-contact: root.fm-show-contact;
+                        show-note: root.fm-show-note;
+                        term-readonly: root.fm-term-readonly;
+                        show-target: root.fm-show-target;
+                        target: root.fm-target;
+                        preview-prefix: root.fm-preview-prefix;
+                        preview-entity: root.fm-preview-entity + root.fm-term.to-uppercase();
+                        submit => { root.submit-form(); }
+                        cancel => { root.cancel-form(); }
+                    }
+                    if root.view == "snapshots" : Rectangle {
+                        x: 0; y: 0;
+                        width: parent.width; height: parent.height;
+                        background: transparent;
+                        ScrollView {
+                            width: 100%; height: 100%;
+                            VerticalLayout {
+                                padding: Tokens.space-5;
+                                spacing: Tokens.space-3;
+                                ScreenTitle { text: "快照"; }
+                                Text { text: "每次写入前自动留一份全量副本；超 10MB 按最旧的先删。恢复 = 让状态等于那一时刻。"; color: Tokens.text-muted; font-size: Tokens.text-caption; wrap: word-wrap; }
+                                for s[j] in root.sn-lines : Rectangle {
+                                    height: 32px;
+                                    background: transparent;
+                                    HorizontalLayout {
+                                        spacing: Tokens.space-3;
+                                        alignment: start;
+                                        Text { text: s.created-at; color: Tokens.text; font-family: Tokens.font-mono; font-size: Tokens.text-body; width: 220px; vertical-alignment: center; }
+                                        Text { text: s.size; color: Tokens.text-muted; font-family: Tokens.font-mono; font-size: Tokens.text-caption; width: 90px; vertical-alignment: center; }
+                                        Text { text: s.variables + " 个变量"; color: Tokens.text-muted; font-size: Tokens.text-caption; vertical-alignment: center; horizontal-stretch: 1; }
+                                        GhostButton { label: "恢复"; min-width: 64px; height: 24px; clicked => { root.restore-snapshot(s.index); } }
+                                        GhostButton { label: "删除"; destructive: true; min-width: 64px; height: 24px; clicked => { root.delete-snapshot(s.index); } }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if root.view == "doctor" : Rectangle {
+                        x: 0; y: 0;
+                        width: parent.width; height: parent.height;
+                        background: transparent;
+                        ScrollView {
+                            width: 100%; height: 100%;
+                            VerticalLayout {
+                                padding: Tokens.space-5;
+                                spacing: Tokens.space-3;
+                                ScreenTitle { text: "自检"; }
+                                Text {
+                                    text: root.ck-ok ? "四项全通过" : "有检查未通过：钩子缺失就跑 assets init，会话不新鲜就重开 shell。";
+                                    color: Tokens.text-muted;
+                                    font-size: Tokens.text-body;
+                                    wrap: word-wrap;
+                                }
+                                for c[k] in root.ck-lines : Rectangle {
+                                    height: 28px;
+                                    background: transparent;
+                                    HorizontalLayout {
+                                        spacing: Tokens.space-2;
+                                        alignment: start;
+                                        StatusDot { tone: c.ok ? Tokens.success : Tokens.danger; }
+                                        Text { text: c.id; color: Tokens.text; font-family: Tokens.font-mono; font-size: Tokens.text-body; width: 170px; vertical-alignment: center; }
+                                        Text { text: c.detail; color: Tokens.text-muted; font-size: Tokens.text-caption; vertical-alignment: center; horizontal-stretch: 1; overflow: elide; }
+                                    }
+                                }
+                                HorizontalLayout {
+                                    spacing: Tokens.space-2;
+                                    alignment: start;
+                                    GhostButton { label: "重新自检"; clicked => { root.rerun-doctor(); } }
+                                }
+                            }
+                        }
+                    }
+                    if root.view == "empty" : Rectangle {
+                        x: 0; y: 0;
+                        width: parent.width; height: parent.height;
+                        background: transparent;
+                        VerticalLayout {
+                            padding: Tokens.space-5;
+                            spacing: Tokens.space-3;
+                            ScreenTitle { text: "还没有任何资产"; }
+                            Text { text: root.em-hint; color: Tokens.text-muted; font-size: Tokens.text-body; }
+                            HorizontalLayout {
+                                spacing: Tokens.space-2;
+                                alignment: start;
+                                PrimaryButton { label: "登记第一个平台"; clicked => { root.new-platform(); } }
+                            }
+                        }
+                    }
+                    if root.view == "fault" : Rectangle {
+                        x: 0; y: 0;
+                        width: parent.width; height: parent.height;
+                        background: transparent;
+                        VerticalLayout {
+                            padding: Tokens.space-5;
+                            spacing: Tokens.space-3;
+                            ScreenTitle { text: root.ft-heading; }
+                            Text { text: root.ft-detail; color: Tokens.text; font-size: Tokens.text-body; wrap: word-wrap; }
+                            HorizontalLayout {
+                                spacing: Tokens.space-2;
+                                alignment: start;
+                                GhostButton { label: "去快照回退"; clicked => { root.nav("snapshots"); } }
+                                GhostButton { label: "重新自检"; clicked => { root.nav("doctor"); } }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── 底部信息条 ──
+        Rectangle { height: 1px; background: Tokens.border; }
+        Rectangle {
+            height: 28px;
+            background: Tokens.surface;
+
+            HorizontalLayout {
+                padding-left: Tokens.space-4;
+                padding-right: Tokens.space-4;
+                spacing: Tokens.space-2;
+                alignment: start;
+                if root.quota-warning : StatusDot { tone: Tokens.warning; }
+                Text {
+                    text: root.foot-snapshot + " · " + root.foot-quota;
+                    color: Tokens.text-muted;
+                    font-size: Tokens.text-caption;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+
+    // ── 浮层：S6 删除确认 / S7 改名确认 / S9 恢复确认 ──
+    if root.cf-open : Rectangle {
+        width: 100%;
+        height: 100%;
+        background: Tokens.scrim.with-alpha(0.45);
+
+        Rectangle {
+            width: min(parent.width - Tokens.space-6, Tokens.width-dialog);
+            height: content.preferred-height + Tokens.space-2 * 2;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            background: Tokens.surface-raised;
+            border-width: 1px;
+            border-color: Tokens.border-strong;
+            border-radius: Tokens.radius-lg;
+
+            content := VerticalLayout {
+                x: Tokens.space-2;
+                y: Tokens.space-2;
+                width: parent.width - Tokens.space-2 * 2;
+                spacing: Tokens.space-3;
+                SectionTitle { text: root.cf-heading; }
+                for line[i] in root.cf-lines : Text {
+                    text: line.text;
+                    color: Tokens.text-muted;
+                    font-family: Tokens.font-mono;
+                    font-size: Tokens.text-body;
+                    wrap: word-wrap;
+                }
+                if root.cf-show-input : VerticalLayout {
+                    spacing: Tokens.space-1;
+                    Text { text: root.cf-input-label; color: Tokens.text-muted; font-size: Tokens.text-caption; }
+                    Rectangle {
+                        width: 420px; height: 32px;
+                        background: Tokens.surface-sunken;
+                        border-width: 1px; border-color: Tokens.border-strong;
+                        border-radius: Tokens.radius-md;
+                        TextInput {
+                            text: root.cf-input;
+                            single-line: true;
+                            font-family: Tokens.font-mono;
+                            font-size: Tokens.text-body;
+                            edited => { root.cf-input = self.text; root.cf-input-changed(self.text); }
+                        }
+                    }
+                }
+                if root.cf-error != "" : Text { text: root.cf-error; color: Tokens.danger; font-size: Tokens.text-body; wrap: word-wrap; }
+                HorizontalLayout {
+                    spacing: Tokens.space-2;
+                    alignment: end;
+                    GhostButton { label: "取消"; clicked => { root.confirm-no(); } }
+                    if root.cf-destructive : GhostButton {
+                        label: root.cf-confirm-label;
+                        destructive: true;
+                        clicked => { root.confirm-yes(); }
+                    }
+                    if !root.cf-destructive : PrimaryButton {
+                        label: root.cf-confirm-label;
+                        clicked => { root.confirm-yes(); }
+                    }
+                }
+            }
+        }
+    }
+}
