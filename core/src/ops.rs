@@ -183,6 +183,8 @@ pub fn platform_rename(ctx: &Ctx, old: &str, new: &str) -> Result<String> {
     let mut after = before.clone();
     after.find_platform_mut(old).expect("平台刚查到").name = new.to_string();
     commit(ctx, &before, &after, &ops)?;
+    // 图标跟着平台走：它只是显示层的附属物，改不动也不该挡住台账改名。
+    let _ = crate::icons::rename(&ctx.paths, &old_name, new);
     Ok(format!(
         "已重命名 {old_name} → {new}：{account_count} 个账号 / {} 个变量名已更新",
         moves.len()
@@ -458,7 +460,14 @@ pub fn var_delete(
             .retain(|v| naming::normalize(&v.term) != naming::normalize(term)),
     }
 
-    commit(ctx, &before, &after, &[RegOp::Delete { name: var_name.clone() }])?;
+    commit(
+        ctx,
+        &before,
+        &after,
+        &[RegOp::Delete {
+            name: var_name.clone(),
+        }],
+    )?;
     Ok(format!("已删除 {scope} 的变量 {var_name}"))
 }
 
@@ -478,7 +487,11 @@ pub fn account_delete(ctx: &Ctx, platform_name: &str, alias: &str) -> Result<Str
 
     let mut names = Vec::new();
     for decl in &target.variables {
-        names.push(naming::account_var_name(&display, &target_alias, &decl.term)?);
+        names.push(naming::account_var_name(
+            &display,
+            &target_alias,
+            &decl.term,
+        )?);
     }
     let var_count = names.len();
 
@@ -489,7 +502,9 @@ pub fn account_delete(ctx: &Ctx, platform_name: &str, alias: &str) -> Result<Str
             .retain(|a| naming::normalize(&a.alias) != naming::normalize(&target_alias));
     }
     commit(ctx, &before, &after, &delete_ops(&names))?;
-    Ok(format!("已删除条目 {display}/{target_alias}：{var_count} 个变量"))
+    Ok(format!(
+        "已删除条目 {display}/{target_alias}：{var_count} 个变量"
+    ))
 }
 
 /// 删除平台：连带它的平台级变量与全部账号级变量。
@@ -508,7 +523,11 @@ pub fn platform_delete(ctx: &Ctx, name: &str) -> Result<String> {
     }
     for account in &platform.accounts {
         for decl in &account.variables {
-            names.push(naming::account_var_name(&display, &account.alias, &decl.term)?);
+            names.push(naming::account_var_name(
+                &display,
+                &account.alias,
+                &decl.term,
+            )?);
         }
     }
     let account_count = platform.accounts.len();
@@ -519,6 +538,8 @@ pub fn platform_delete(ctx: &Ctx, name: &str) -> Result<String> {
         .platforms
         .retain(|p| naming::normalize(&p.name) != naming::normalize(&display));
     commit(ctx, &before, &after, &delete_ops(&names))?;
+    // 平台没了，挂在它下面的图标也没有主人了。
+    let _ = crate::icons::remove(&ctx.paths, &display);
     Ok(format!(
         "已删除平台 {display}：{account_count} 个账号 / {var_count} 个变量"
     ))

@@ -7,15 +7,15 @@ import { StatusDot, PrimaryButton, GhostButton, ScreenTitle, SectionTitle } from
 
 export component AppWindow inherits Window {
     title: "assets";
-    // 初始尺寸固定：窗口宽高参与断点判定，若让窗口尺寸反过来依赖内容首选宽度会成环。
-    width: 1100px;
-    height: 720px;
     default-font-family: Tokens.font-ui;
     default-font-size: Tokens.text-body;
     background: Tokens.surface;
 
+    // 窗口尺寸不在这里写死：`width: 1100px` 是一条常量绑定，等于把界面钉在 1100×720 ——
+    // 窗口被拖大后内容不跟随（右侧 / 底部留一整块底色），拖小时断点也永远按 1100 判定、
+    // 紧凑态进不去。初始尺寸与最小尺寸都由根布局的 preferred / min 决定。
+
     in-out property <string> view: "empty";
-    in property <bool> compact: self.width < Tokens.bp-compact;
 
     // 顶部条 / 底部条
     in property <string> data-dir: "";
@@ -39,6 +39,10 @@ export component AppWindow inherits Window {
     in property <[ListLine]> dt-lines: [];
     in property <bool> dt-can-delete: true;
     in property <bool> dt-can-add-account: true;
+    // S2 的平台图标：只在平台详情出现。
+    in property <bool> dt-show-icon: false;
+    in property <image> dt-icon;
+    in property <bool> dt-has-icon: false;
     // S4 / S5
     in-out property <string> fm-heading: "";
     in-out property <string> fm-hint: "";
@@ -78,6 +82,8 @@ export component AppWindow inherits Window {
     in property <[ListLine]> cf-lines: [];
     in property <string> cf-confirm-label: "确认";
     in property <bool> cf-destructive: true;
+    // 从网址取图标时窗口不能被冻住，取的过程在后台线程上；这段时间按钮停用、标签变「获取中」。
+    in property <bool> cf-busy: false;
     // S7 改名：浮层里就地输入新名，边打边刷新级联对照表。
     in property <bool> cf-show-input: false;
     in-out property <string> cf-input: "";
@@ -88,6 +94,9 @@ export component AppWindow inherits Window {
     callback nav(string);
     callback new-platform;
     callback new-account;
+    callback icon-fetch;
+    callback icon-pick;
+    callback icon-clear;
     callback new-var;
     callback rename;
     callback remove;
@@ -103,8 +112,14 @@ export component AppWindow inherits Window {
     callback cf-input-changed(string);
 
     VerticalLayout {
-        // 内容自身的最小几何：窗口被拖到更小时，内容按这个下界布局。
-        min-width: 900px;
+        // 初始窗口大小取 preferred；能拖到多小取 min。
+        //
+        // min 取 984（= --bp-compact）：这一版不做紧凑态 —— Slint 里「根布局的约束依赖窗口宽度」
+        // 与「窗口尺寸取自根布局的约束」会互相追，编译期就报 binding loop，实测窗口会退化成
+        // 只显示顶栏 / 底栏的小窗。改成把窗口下限设到断点宽度：左树与顶栏永远放得下。
+        preferred-width: 1100px;
+        preferred-height: 720px;
+        min-width: 984px;
         min-height: 600px;
         spacing: 0px;
 
@@ -193,12 +208,12 @@ export component AppWindow inherits Window {
         HorizontalLayout {
             spacing: 0px;
 
-            if !root.compact : AssetTree {
+            AssetTree {
                 rows: root.tree;
                 selection: root.selection;
                 selected(key) => { root.select(key); }
             }
-            if !root.compact : Rectangle {
+            Rectangle {
                 width: 1px;
                 background: Tokens.border;
             }
@@ -229,12 +244,18 @@ export component AppWindow inherits Window {
                         lines: root.dt-lines;
                         can-delete: root.dt-can-delete;
                         can-add-account: root.dt-can-add-account;
+                        show-icon: root.dt-show-icon;
+                        icon: root.dt-icon;
+                        has-icon: root.dt-has-icon;
                         new-account => { root.new-account(); }
                         new-var => { root.new-var(); }
                         rename => { root.rename(); }
                         remove => { root.remove(); }
                         edit-var(key) => { root.edit-var(key); }
                         remove-var(key) => { root.remove-var(key); }
+                        icon-fetch => { root.icon-fetch(); }
+                        icon-pick => { root.icon-pick(); }
+                        icon-clear => { root.icon-clear(); }
                     }
                     if root.view == "form" : FormPane {
                         x: 0; y: 0;
@@ -389,15 +410,35 @@ export component AppWindow inherits Window {
         }
     }
 
-    // ── 浮层：S6 删除确认 / S7 改名确认 / S9 恢复确认 ──
-    if root.cf-open : Rectangle {
+    // ── 浮层：S6 删除确认 / S7 改名确认 / S9 恢复确认 / 平台图标 ──
+    // FocusScope 兜住键盘（Esc = 取消）与焦点；遮罩上再盖一层 TouchArea 吃掉指针事件，
+    // 否则点浮层外的树会穿透过去，把选中改到别的平台。
+    if root.cf-open : FocusScope {
         width: 100%;
         height: 100%;
-        background: Tokens.scrim.with-alpha(0.45);
+        init => { self.focus(); }
+        key-pressed(event) => {
+            if (event.text == Key.Escape) {
+                root.confirm-no();
+                return accept;
+            }
+            return reject;
+        }
+
+        Rectangle {
+            width: 100%;
+            height: 100%;
+            background: Tokens.scrim.with-alpha(0.45);
+            TouchArea { mouse-cursor: default; }
+        }
 
         Rectangle {
             width: min(parent.width - Tokens.space-6, Tokens.width-dialog);
-            height: content.preferred-height + Tokens.space-2 * 2;
+            // 高度只由内容的首选高度决定：盒布局的 padding 已经算进 preferred-height，
+            // 外面不能再补一遍内边距，否则内容会多拿到一圈高度、被拉伸到超出下边框。
+            // 但内容本身也得有个上限：改名 / 删除确认会把整份变量清单摊开，变量多的平台能把
+            // 卡片撑得比窗口还高，那时按钮会被顶到屏幕外。超过窗口就把清单交给里面的 ScrollView。
+            height: min(content.preferred-height, parent.height - Tokens.space-6);
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
             background: Tokens.surface-raised;
@@ -405,54 +446,61 @@ export component AppWindow inherits Window {
             border-color: Tokens.border-strong;
             border-radius: Tokens.radius-lg;
 
-            content := VerticalLayout {
-                x: Tokens.space-2;
-                y: Tokens.space-2;
-                width: parent.width - Tokens.space-2 * 2;
-                spacing: Tokens.space-3;
-                SectionTitle { text: root.cf-heading; }
-                for line[i] in root.cf-lines : Text {
-                    text: line.text;
-                    color: Tokens.text-muted;
-                    font-family: Tokens.font-mono;
-                    font-size: Tokens.text-body;
-                    wrap: word-wrap;
-                }
-                if root.cf-show-input : VerticalLayout {
-                    spacing: Tokens.space-1;
-                    Text { text: root.cf-input-label; color: Tokens.text-muted; font-size: Tokens.text-caption; }
-                    Rectangle {
-                        width: 420px; height: 32px;
-                        background: Tokens.surface-sunken;
-                        border-width: 1px; border-color: Tokens.border-strong;
-                        border-radius: Tokens.radius-md;
-                        TextInput {
-                            x: Tokens.space-3;
-                            y: 0;
-                            width: parent.width - Tokens.space-3 * 2;
-                            height: parent.height;
-                            vertical-alignment: center;
-                            text: root.cf-input;
-                            single-line: true;
-                            font-family: Tokens.font-mono;
-                            font-size: Tokens.text-body;
-                            edited => { root.cf-input = self.text; root.cf-input-changed(self.text); }
+            ScrollView {
+                width: 100%;
+                height: 100%;
+
+                content := VerticalLayout {
+                    padding: Tokens.space-2;
+                    spacing: Tokens.space-3;
+                    // 标题与清单里都是没有空格的标识符：Slint 的 word-wrap 在长词内部也会断开，
+                    // 等价于 MASTER §6 要求的 overflow-wrap: anywhere，不至于把卡片撑破。
+                    SectionTitle { text: root.cf-heading; wrap: word-wrap; }
+                    for line[i] in root.cf-lines : Text {
+                        text: line.text;
+                        color: Tokens.text-muted;
+                        font-family: Tokens.font-mono;
+                        font-size: Tokens.text-body;
+                        wrap: word-wrap;
+                    }
+                    if root.cf-show-input : VerticalLayout {
+                        spacing: Tokens.space-1;
+                        Text { text: root.cf-input-label; color: Tokens.text-muted; font-size: Tokens.text-caption; }
+                        Rectangle {
+                            width: 420px; height: 32px;
+                            background: Tokens.surface-sunken;
+                            border-width: 1px; border-color: Tokens.border-strong;
+                            border-radius: Tokens.radius-md;
+                            TextInput {
+                                x: Tokens.space-3;
+                                y: 0;
+                                width: parent.width - Tokens.space-3 * 2;
+                                height: parent.height;
+                                vertical-alignment: center;
+                                text: root.cf-input;
+                                single-line: true;
+                                font-family: Tokens.font-mono;
+                                font-size: Tokens.text-body;
+                                edited => { root.cf-input = self.text; root.cf-input-changed(self.text); }
+                            }
                         }
                     }
-                }
-                if root.cf-error != "" : Text { text: root.cf-error; color: Tokens.danger; font-size: Tokens.text-body; wrap: word-wrap; }
-                HorizontalLayout {
-                    spacing: Tokens.space-2;
-                    alignment: end;
-                    GhostButton { label: "取消"; clicked => { root.confirm-no(); } }
-                    if root.cf-destructive : GhostButton {
-                        label: root.cf-confirm-label;
-                        destructive: true;
-                        clicked => { root.confirm-yes(); }
-                    }
-                    if !root.cf-destructive : PrimaryButton {
-                        label: root.cf-confirm-label;
-                        clicked => { root.confirm-yes(); }
+                    if root.cf-error != "" : Text { text: root.cf-error; color: Tokens.danger; font-size: Tokens.text-body; wrap: word-wrap; }
+                    HorizontalLayout {
+                        spacing: Tokens.space-2;
+                        alignment: end;
+                        GhostButton { label: "取消"; clicked => { root.confirm-no(); } }
+                        if root.cf-destructive : GhostButton {
+                            label: root.cf-confirm-label;
+                            destructive: true;
+                            enabled: !root.cf-busy;
+                            clicked => { root.confirm-yes(); }
+                        }
+                        if !root.cf-destructive : PrimaryButton {
+                            label: root.cf-confirm-label;
+                            enabled: !root.cf-busy;
+                            clicked => { root.confirm-yes(); }
+                        }
                     }
                 }
             }

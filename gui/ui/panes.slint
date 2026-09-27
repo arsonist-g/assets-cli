@@ -125,12 +125,19 @@ export component DetailPane inherits Rectangle {
     in property <[ListLine]> lines;
     in property <bool> can-delete: true;
     in property <bool> can-add-account: true;
+    // 平台图标块：只在平台详情出现（账号没有图标）。
+    in property <bool> show-icon: false;
+    in property <image> icon;
+    in property <bool> has-icon: false;
     callback new-account;
     callback new-var;
     callback rename;
     callback remove;
     callback edit-var(string);
     callback remove-var(string);
+    callback icon-fetch;
+    callback icon-pick;
+    callback icon-clear;
 
     background: transparent;
 
@@ -144,6 +151,48 @@ export component DetailPane inherits Rectangle {
 
             ScreenTitle { text: root.heading; }
             Text { text: root.summary; color: Tokens.text-muted; font-size: Tokens.text-body; wrap: word-wrap; }
+
+            if root.show-icon : HorizontalLayout {
+                spacing: Tokens.space-3;
+                alignment: start;
+
+                // 预览框：没有图标时是空框，不放占位图（占位图会被误读成"这就是它的图标"）。
+                Rectangle {
+                    width: 40px;
+                    height: 40px;
+                    background: Tokens.surface-sunken;
+                    border-width: 1px;
+                    border-color: Tokens.border;
+                    border-radius: Tokens.radius-md;
+                    cross-axis-self-alignment: center;
+                    if root.has-icon : Image {
+                        x: 3px;
+                        y: 3px;
+                        width: 32px;
+                        height: 32px;
+                        source: root.icon;
+                        image-fit: contain;
+                    }
+                }
+
+                VerticalLayout {
+                    spacing: Tokens.space-2;
+                    Text { text: "平台图标"; color: Tokens.text-muted; font-size: Tokens.text-caption; }
+                    HorizontalLayout {
+                        spacing: Tokens.space-2;
+                        alignment: start;
+                        GhostButton { label: "从网址获取"; min-width: 88px; height: 24px; clicked => { root.icon-fetch(); } }
+                        GhostButton { label: "选择本地文件"; min-width: 96px; height: 24px; clicked => { root.icon-pick(); } }
+                        if root.has-icon : GhostButton {
+                            label: "移除图标";
+                            destructive: true;
+                            min-width: 72px;
+                            height: 24px;
+                            clicked => { root.icon-clear(); }
+                        }
+                    }
+                }
+            }
 
             HorizontalLayout {
                 spacing: Tokens.space-2;

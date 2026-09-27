@@ -5,6 +5,7 @@
 
 pub mod doctor;
 pub mod error;
+pub mod icons;
 pub mod init;
 pub mod manifest;
 pub mod model;

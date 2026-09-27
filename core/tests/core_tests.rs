@@ -122,7 +122,10 @@ fn var_delete_drops_only_the_named_declaration() {
     ops::var_delete(&ctx, "cf", Some("main"), "AK").unwrap();
     assert!(ctx.registry.get("ASSETS_CLI_CF_MAIN_AK").unwrap().is_none());
     assert_eq!(
-        ctx.registry.get("ASSETS_CLI_CF_MAIN_SK").unwrap().as_deref(),
+        ctx.registry
+            .get("ASSETS_CLI_CF_MAIN_SK")
+            .unwrap()
+            .as_deref(),
         Some("sk-0001")
     );
 

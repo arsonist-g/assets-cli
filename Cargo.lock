@@ -269,6 +269,7 @@ name = "assets-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "image",
  "serde",
  "serde_json",
  "windows-sys 0.61.2",
@@ -283,6 +284,7 @@ dependencies = [
  "serde_json",
  "slint",
  "slint-build",
+ "windows-sys 0.61.2",
  "winresource",
 ]
 
@@ -2140,6 +2142,9 @@ checksum = "85ab80394333c02fe689eaf900ab500fbd0c2213da414687ebf995a65d5a6104"
 dependencies = [
  "bytemuck",
  "byteorder-lite",
+ "color_quant",
+ "gif",
+ "image-webp",
  "moxcms",
  "num-traits",
  "png",

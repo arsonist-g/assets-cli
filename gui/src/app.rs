@@ -6,15 +6,17 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, UNIX_EPOCH};
 
 use assets_core::model::{Account, DataDoc, Platform, Snapshot, VarDecl};
 use assets_core::naming;
 use assets_core::ops::{self, Ctx, MetaPatch};
 use assets_core::paths::{Hive, Layout, Paths, RegistrySpec};
-use assets_core::{doctor, snapshot, store, CoreError};
+use assets_core::{doctor, icons, snapshot, store, CoreError};
 
-use slint::{ComponentHandle, ModelRc, VecModel};
+use slint::{ComponentHandle, ModelRc, Timer, TimerMode, VecModel};
 
 use crate::{AppWindow, CheckLine, ListLine, SnapshotLine, TreeRow};
 
@@ -67,6 +69,10 @@ enum Confirm {
     DeleteSnapshot(usize),
     RenamePlatform(String),
     RenameAccount(String, String),
+    /// 从网址取平台图标：字符串是平台名，网址在浮层的输入框里。
+    IconUrl(String),
+    /// 只报一件事的浮层（目前只有「图标没装上」这一种）。
+    IconNotice(String),
 }
 
 struct App {
@@ -89,10 +95,21 @@ struct App {
     confirm: Option<Confirm>,
     confirm_error: Option<String>,
     rename_input: String,
+    /// 平台图标按平台名缓存（文件 mtime 变了就重读）：界面每次重渲染都要用图标，
+    /// 不缓存的话每敲一个字都要把所有图标解码一遍。
+    icon_cache: BTreeMap<String, (u128, Option<slint::Image>)>,
+    /// 正在后台取图标的任务：装结果的槽，界面据此显示「获取中…」。
+    icon_job: Option<Arc<Mutex<Option<Result<(), String>>>>>,
+    /// 取图标时用的轮询计时器（网络等待在后台线程上，主线程只负责看结果）。
+    icon_poll: Timer,
 }
 
 pub fn run() -> Result<(), slint::PlatformError> {
     let ui = AppWindow::new()?;
+    // 初始窗口尺寸在 Rust 侧显式设一次：`.slint` 里把根元素的 width/height 绑成常量会把界面
+    // 钉死（窗口拖大后内容不跟随、拖小时断点永远按初始值判定），而完全不设又会开成一个
+    // 只有顶栏 / 底栏的小窗。设一次是赋值，之后的尺寸归窗口系统管。
+    ui.window().set_size(slint::LogicalSize::new(1100.0, 720.0));
     let app = Rc::new(RefCell::new(App::load()));
     app.borrow_mut().render(&ui);
     wire(&ui, &app);
@@ -124,24 +141,84 @@ fn wire(ui: &AppWindow, app: &Rc<RefCell<App>>) {
         }};
     }
 
-    bind!(on_select, state, _win, |key: slint::SharedString| { state.select(key.as_str()); });
-    bind!(on_nav, state, _win, |view: slint::SharedString| { state.nav(view.as_str()); });
-    bind!(on_new_platform, state, _win, || { state.start_new_platform(); });
-    bind!(on_new_account, state, _win, || { state.start_new_account(); });
-    bind!(on_new_var, state, _win, || { state.start_new_var(); });
-    bind!(on_rename, state, _win, || { state.start_rename(); });
-    bind!(on_remove, state, _win, || { state.start_remove(); });
-    bind!(on_edit_var, state, _win, |key: slint::SharedString| { state.start_edit_var(key.as_str()); });
-    bind!(on_remove_var, state, _win, |key: slint::SharedString| { state.start_remove_var(key.as_str()); });
+    bind!(on_select, state, _win, |key: slint::SharedString| {
+        state.select(key.as_str());
+    });
+    bind!(on_nav, state, _win, |view: slint::SharedString| {
+        state.nav(view.as_str());
+    });
+    bind!(on_new_platform, state, _win, || {
+        state.start_new_platform();
+    });
+    bind!(on_new_account, state, _win, || {
+        state.start_new_account();
+    });
+    bind!(on_new_var, state, _win, || {
+        state.start_new_var();
+    });
+    bind!(on_rename, state, _win, || {
+        state.start_rename();
+    });
+    bind!(on_remove, state, _win, || {
+        state.start_remove();
+    });
+    bind!(on_edit_var, state, _win, |key: slint::SharedString| {
+        state.start_edit_var(key.as_str());
+    });
+    bind!(on_remove_var, state, _win, |key: slint::SharedString| {
+        state.start_remove_var(key.as_str());
+    });
     // 这两处要读界面上的输入，所以把升级后的窗口交给回调体（叫 win）。
-    bind!(on_submit_form, state, win, || { state.submit_form(&win); });
-    bind!(on_confirm_yes, state, win, || { state.confirm_yes(&win); });
-    bind!(on_cancel_form, state, _win, || { state.cancel_form(); });
-    bind!(on_restore_snapshot, state, _win, |index: i32| { state.start_restore(index); });
-    bind!(on_delete_snapshot, state, _win, |index: i32| { state.start_delete_snapshot(index); });
-    bind!(on_rerun_doctor, state, _win, || { state.rerun_doctor(); });
-    bind!(on_confirm_no, state, _win, || { state.confirm = None; state.confirm_error = None; });
-    bind!(on_cf_input_changed, state, _win, |text: slint::SharedString| { state.rename_input = text.to_string(); });
+    bind!(on_submit_form, state, win, || {
+        state.submit_form(&win);
+    });
+    // 这一处不用 bind 宏：取图标要起后台线程 + 轮询计时器，两者都要拿到 App 自身的弱引用。
+    {
+        let app = app.clone();
+        let weak = ui.as_weak();
+        ui.on_confirm_yes(move || {
+            let Some(win) = weak.upgrade() else { return };
+            let mut state = app.borrow_mut();
+            state.confirm_yes(&win, Rc::downgrade(&app));
+            state.render(&win);
+        });
+    }
+    bind!(on_cancel_form, state, _win, || {
+        state.cancel_form();
+    });
+    bind!(on_restore_snapshot, state, _win, |index: i32| {
+        state.start_restore(index);
+    });
+    bind!(on_delete_snapshot, state, _win, |index: i32| {
+        state.start_delete_snapshot(index);
+    });
+    bind!(on_rerun_doctor, state, _win, || {
+        state.rerun_doctor();
+    });
+    bind!(on_confirm_no, state, _win, || {
+        state.confirm = None;
+        state.confirm_error = None;
+        // 取消时若正在取图标：这一次的结果已经没人要了，槽清空即作废 —— 否则等图失败的那几秒
+        // 过去后，会在人早就离开的浮层上报一句失败。取图线程自己在后台跑完就结束。
+        state.icon_job = None;
+    });
+    bind!(
+        on_cf_input_changed,
+        state,
+        _win,
+        |text: slint::SharedString| {
+            state.rename_input = text.to_string();
+        }
+    );
+    bind!(on_icon_fetch, state, _win, || {
+        state.open_icon_url();
+    });
+    bind!(on_icon_pick, state, _win, || {
+        state.pick_icon();
+    });
+    bind!(on_icon_clear, state, _win, || {
+        state.clear_icon();
+    });
 }
 
 /// 落点解析失败时的兜底：只为让界面能起来并报出故障，不做任何写入。
@@ -242,7 +319,14 @@ fn field(label: &str, value: impl Into<slint::SharedString>) -> ListLine {
 }
 
 /// 变量行：键可回指到具体变量（改值 / 删除都靠它）。
-fn var_line(platform: &str, alias: Option<&str>, term: &str, name: &str, meta: &str, has_value: bool) -> ListLine {
+fn var_line(
+    platform: &str,
+    alias: Option<&str>,
+    term: &str,
+    name: &str,
+    meta: &str,
+    has_value: bool,
+) -> ListLine {
     let (prefix, entity) = signature(name);
     ListLine {
         key: var_key(platform, alias, term).into(),
@@ -253,6 +337,27 @@ fn var_line(platform: &str, alias: Option<&str>, term: &str, name: &str, meta: &
         meta: meta.into(),
         has_value,
     }
+}
+
+/// core 的 RGBA8 像素 → Slint 图像。
+///
+/// 现造一份，不走 Slint 的「按图片路径加载」那条路：那条路会按路径缓存，
+/// 同一个平台换过图标之后界面还显示旧图。
+fn to_image(pixels: icons::IconPixels) -> slint::Image {
+    let buffer = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
+        &pixels.rgba,
+        pixels.width,
+        pixels.height,
+    );
+    slint::Image::from_rgba8(buffer)
+}
+
+/// 图标网址的预填：`https://<小写平台名>.com/favicon.ico`。
+///
+/// 只是挑了一个常见写法填进去，不是「平台 → favicon」配方表 —— 平台是用户自定义的命名空间，
+/// 猜错了人在浮层里改一下就行。
+fn suggested_icon_url(platform: &str) -> String {
+    format!("https://{}.com/favicon.ico", platform.to_ascii_lowercase())
 }
 impl App {
     fn load() -> App {
@@ -299,6 +404,9 @@ impl App {
             confirm: None,
             confirm_error: None,
             rename_input: String::new(),
+            icon_cache: BTreeMap::new(),
+            icon_job: None,
+            icon_poll: Timer::default(),
         }
     }
 
@@ -316,6 +424,8 @@ impl App {
         snaps.reverse();
         self.snaps = snaps;
         self.report = doctor::run(&self.ctx, &self.layout);
+        // 台账刚动过：图标可能跟着改了名或被删了，缓存整个丢掉（图标是按平台名 + mtime 存的）。
+        self.icon_cache.clear();
     }
 
     /// 台账变了之后，把视图落回一个还存在的地方。
@@ -428,6 +538,7 @@ impl App {
         self.rename_input = match &confirm {
             Confirm::RenamePlatform(name) => name.clone(),
             Confirm::RenameAccount(_, alias) => alias.clone(),
+            Confirm::IconUrl(name) => suggested_icon_url(name),
             _ => String::new(),
         };
         self.confirm_error = None;
@@ -521,6 +632,158 @@ impl App {
         self.report = doctor::run(&self.ctx, &self.layout);
     }
 
+    // ── 平台图标：显示 / 取 / 配 / 清 ──
+
+    /// 一个平台的图标；没有图标返回空图 + false（界面据此决定摆不摆图标）。
+    fn icon_image(&mut self, platform: &str) -> (slint::Image, bool) {
+        let stamp = icons::path(&self.ctx.paths, platform)
+            .ok()
+            .and_then(|file| std::fs::metadata(file).ok())
+            .and_then(|meta| meta.modified().ok())
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .map(|since| since.as_nanos())
+            .unwrap_or(0);
+        if stamp == 0 {
+            return (slint::Image::default(), false);
+        }
+        if let Some((cached, image)) = self.icon_cache.get(platform) {
+            if *cached == stamp {
+                return match image {
+                    Some(image) => (image.clone(), true),
+                    None => (slint::Image::default(), false),
+                };
+            }
+        }
+        // 图标坏了不该挡住界面：当成没有图标，文件 mtime 变了会再试一次。
+        let loaded = match icons::load_pixels(&self.ctx.paths, platform) {
+            Ok(Some(pixels)) => Some(to_image(pixels)),
+            _ => None,
+        };
+        let answer = match &loaded {
+            Some(image) => (image.clone(), true),
+            None => (slint::Image::default(), false),
+        };
+        self.icon_cache
+            .insert(platform.to_string(), (stamp, loaded));
+        answer
+    }
+
+    /// S2 的「从网址获取」：开浮层填网址。
+    fn open_icon_url(&mut self) {
+        let View::Platform(name) = self.view.clone() else {
+            return;
+        };
+        self.open_confirm(Confirm::IconUrl(name));
+    }
+
+    /// S2 的「选择本地文件」：Windows 原生文件对话框，选定后统一转 PNG 落盘。
+    fn pick_icon(&mut self) {
+        let View::Platform(name) = self.view.clone() else {
+            return;
+        };
+        let Some(file) = pick_image_file() else {
+            return;
+        };
+        match icons::save_from_file(&self.ctx.paths, &name, &file) {
+            Ok(_) => {
+                self.icon_cache.remove(&name);
+            }
+            Err(err) => self.open_confirm(Confirm::IconNotice(err.to_string())),
+        }
+    }
+
+    /// S2 的「移除图标」：只删图标文件，台账一个字不动。
+    fn clear_icon(&mut self) {
+        let View::Platform(name) = self.view.clone() else {
+            return;
+        };
+        if let Err(err) = icons::remove(&self.ctx.paths, &name) {
+            self.open_confirm(Confirm::IconNotice(err.to_string()));
+        }
+        self.icon_cache.remove(&name);
+    }
+
+    /// 起一次后台取图任务；界面在这期间显示「获取中…」。
+    ///
+    /// 取图要过网络、最坏等满超时（8 秒）—— 放在界面线程上窗口会被冻住，所以丢给线程，
+    /// 主线程只用一个定时器看结果。
+    fn begin_icon_fetch(
+        &mut self,
+        app: Weak<RefCell<App>>,
+        ui: &AppWindow,
+        platform: &str,
+        url: &str,
+    ) {
+        if self.icon_job.is_some() {
+            return;
+        }
+        let paths = self.ctx.paths.clone();
+        let platform = platform.to_string();
+        // 轮询那边要另留一份名字：这一份下面会被搬进取图线程。
+        let watch = platform.clone();
+        let slot: Arc<Mutex<Option<Result<(), String>>>> = Arc::new(Mutex::new(None));
+        {
+            let slot = Arc::clone(&slot);
+            let url = url.to_string();
+            std::thread::spawn(move || {
+                let outcome = icons::fetch(&url)
+                    .and_then(|bytes| icons::save(&paths, &platform, &bytes))
+                    .map(|_| ())
+                    .map_err(|err| err.to_string());
+                if let Ok(mut guard) = slot.lock() {
+                    *guard = Some(outcome);
+                }
+            });
+        }
+        self.icon_job = Some(Arc::clone(&slot));
+
+        let weak_ui = ui.as_weak();
+        self.icon_poll
+            .start(TimerMode::Repeated, Duration::from_millis(120), move || {
+                let Some(app) = app.upgrade() else { return };
+                let Some(win) = weak_ui.upgrade() else { return };
+                let mut state = app.borrow_mut();
+                let Some(outcome) = state.icon_outcome() else {
+                    // 任务被取消（槽已清空）时这个计时器再没有用处，自己停下来。
+                    if state.icon_job.is_none() {
+                        state.icon_poll.stop();
+                    }
+                    return;
+                };
+                state.icon_poll.stop();
+                // 只认「还停在同一个平台的图标浮层上」的那一次：等图的这几秒里用户可能已经把浮层
+                // 关掉、又开了别的（比如删除确认），过期的结果不能跑去动别人头上的浮层。
+                let still_here =
+                    matches!(&state.confirm, Some(Confirm::IconUrl(name)) if name == &watch);
+                match outcome {
+                    Ok(()) => {
+                        if still_here {
+                            state.confirm = None;
+                            state.confirm_error = None;
+                        }
+                    }
+                    Err(err) if still_here => state.confirm_error = Some(err),
+                    // 浮层已经关掉了：不在别人头上弹窗，只在确实没有别的浮层时单独报一句。
+                    Err(err) => {
+                        if state.confirm.is_none() {
+                            state.confirm = Some(Confirm::IconNotice(err));
+                        }
+                    }
+                }
+                state.render(&win);
+            });
+    }
+
+    /// 取图任务的结果；还没回来返回 None（槽里是空的）。
+    fn icon_outcome(&mut self) -> Option<Result<(), String>> {
+        let slot = self.icon_job.clone()?;
+        let outcome = slot.lock().ok().and_then(|mut guard| guard.take());
+        if outcome.is_some() {
+            self.icon_job = None;
+        }
+        outcome
+    }
+
     fn cancel_form(&mut self) {
         self.form = None;
         self.form_error = None;
@@ -564,7 +827,7 @@ impl App {
         }
     }
 
-    fn confirm_yes(&mut self, ui: &AppWindow) {
+    fn confirm_yes(&mut self, ui: &AppWindow, app: Weak<RefCell<App>>) {
         let Some(confirm) = self.confirm.clone() else {
             return;
         };
@@ -598,6 +861,22 @@ impl App {
                     .map(|_| format!("已删除快照 {}", stamp(&info.created_at))),
                 None => Err(CoreError::usage("快照已经不在列表里了，重新打开快照屏")),
             },
+            // 取图标不走「一次 core 调用」那条路：等网络，交给后台线程，浮层保持打开。
+            Confirm::IconUrl(platform) => {
+                let url = proposed.trim().to_string();
+                if url.is_empty() {
+                    self.confirm_error = Some("先填一个图片网址".to_string());
+                    return;
+                }
+                self.confirm_error = None;
+                self.begin_icon_fetch(app, ui, platform, &url);
+                return;
+            }
+            Confirm::IconNotice(_) => {
+                self.confirm = None;
+                self.confirm_error = None;
+                return;
+            }
         };
         match outcome {
             Ok(_) => {
@@ -657,14 +936,29 @@ impl App {
         ui.set_ov_lines(ModelRc::new(VecModel::from(self.overview_lines())));
     }
 
-    fn render_detail(&self, ui: &AppWindow) {
-        match self.view.clone() {
+    fn render_detail(&mut self, ui: &AppWindow) {
+        // 图标先取出来：下面 platform 借的是台账，取图标要 &mut self，两件事不能同时借。
+        let view = self.view.clone();
+        let icon = match &view {
+            View::Platform(name) => Some(self.icon_image(name)),
+            _ => None,
+        };
+        ui.set_dt_show_icon(false);
+        ui.set_dt_icon(slint::Image::default());
+        ui.set_dt_has_icon(false);
+
+        match view {
             View::Platform(name) => {
                 let Some(platform) = self.doc.find_platform(&name) else {
                     return;
                 };
-                let account_vars: usize =
-                    platform.accounts.iter().map(|a| a.variables.len()).sum();
+                // 图标块只在平台详情出现：账号没有自己的图标。
+                ui.set_dt_show_icon(true);
+                if let Some((image, has_icon)) = icon {
+                    ui.set_dt_icon(image);
+                    ui.set_dt_has_icon(has_icon);
+                }
+                let account_vars: usize = platform.accounts.iter().map(|a| a.variables.len()).sum();
                 ui.set_dt_heading(platform.name.clone().into());
                 ui.set_dt_summary(
                     format!(
@@ -687,7 +981,8 @@ impl App {
                     ),
                 ];
                 for decl in sorted_terms(&platform.variables) {
-                    let var = naming::platform_var_name(&platform.name, &decl.term).unwrap_or_default();
+                    let var =
+                        naming::platform_var_name(&platform.name, &decl.term).unwrap_or_default();
                     let has = self.has_value(&var);
                     lines.push(var_line(
                         &platform.name,
@@ -810,9 +1105,7 @@ impl App {
         match &kind {
             FormKind::NewPlatform => {
                 ui.set_fm_heading("登记平台".into());
-                ui.set_fm_hint(
-                    "平台名会成为变量名的第一段，只允许 A-Z a-z 0-9 和 _。".into(),
-                );
+                ui.set_fm_hint("平台名会成为变量名的第一段，只允许 A-Z a-z 0-9 和 _。".into());
                 ui.set_fm_name_label("平台名".into());
                 ui.set_fm_show_term(true);
                 ui.set_fm_term_readonly(false);
@@ -852,9 +1145,7 @@ impl App {
                 ui.set_fm_show_contact(false);
                 ui.set_fm_show_target(true);
                 ui.set_fm_target(self.target_label(platform, alias.as_deref()).into());
-                ui.set_fm_preview_entity(
-                    self.owner_segment(platform, alias.as_deref()).into(),
-                );
+                ui.set_fm_preview_entity(self.owner_segment(platform, alias.as_deref()).into());
             }
             FormKind::EditVar(platform, alias, term) => {
                 ui.set_fm_heading("改值".into());
@@ -870,9 +1161,7 @@ impl App {
                 ui.set_fm_show_contact(false);
                 ui.set_fm_show_target(true);
                 ui.set_fm_target(self.target_label(platform, alias.as_deref()).into());
-                ui.set_fm_preview_entity(
-                    self.owner_segment(platform, alias.as_deref()).into(),
-                );
+                ui.set_fm_preview_entity(self.owner_segment(platform, alias.as_deref()).into());
                 if fresh {
                     ui.set_fm_term(term.clone().into());
                 }
@@ -896,7 +1185,11 @@ impl App {
     /// 变量名里平台 / 别名那一段（大写，带尾下划线），术语由界面实时接在后面。
     fn owner_segment(&self, platform: &str, alias: Option<&str>) -> String {
         match alias {
-            Some(alias) => format!("{}_{}_", naming::normalize(platform), naming::normalize(alias)),
+            Some(alias) => format!(
+                "{}_{}_",
+                naming::normalize(platform),
+                naming::normalize(alias)
+            ),
             None => format!("{}_", naming::normalize(platform)),
         }
     }
@@ -933,7 +1226,8 @@ impl App {
 
     fn render_empty(&self, ui: &AppWindow) {
         ui.set_em_hint(
-            "登记第一个平台：变量名会以 ASSETS_CLI_<平台>_ 开头，之后任何新开的终端里都能读到。".into(),
+            "登记第一个平台：变量名会以 ASSETS_CLI_<平台>_ 开头，之后任何新开的终端里都能读到。"
+                .into(),
         );
     }
 
@@ -973,10 +1267,28 @@ impl App {
     }
 
     /// 左资产树：平台 → 平台级变量 → 账号 → 账号级变量，一段一层缩进。
-    fn tree_rows(&self) -> Vec<TreeRow> {
+    fn tree_rows(&mut self) -> Vec<TreeRow> {
+        // 图标先一次性取齐：循环里借的是台账，取图标要 &mut self。
+        let names: Vec<String> = self
+            .sorted_platforms()
+            .iter()
+            .map(|platform| platform.name.clone())
+            .collect();
+        let icons: BTreeMap<String, (slint::Image, bool)> = names
+            .into_iter()
+            .map(|name| {
+                let image = self.icon_image(&name);
+                (name, image)
+            })
+            .collect();
+
         let mut rows = Vec::new();
         for platform in self.sorted_platforms() {
             let account_vars: usize = platform.accounts.iter().map(|a| a.variables.len()).sum();
+            let (icon, has_icon) = match icons.get(&platform.name) {
+                Some((image, has)) => (image.clone(), *has),
+                None => (slint::Image::default(), false),
+            };
             rows.push(TreeRow {
                 key: format!("p|{}", platform.name).into(),
                 kind: "platform".into(),
@@ -989,6 +1301,8 @@ impl App {
                 prefix: "".into(),
                 entity: "".into(),
                 has_value: false,
+                has_icon,
+                icon,
             });
             for decl in sorted_terms(&platform.variables) {
                 let name =
@@ -1007,6 +1321,8 @@ impl App {
                     prefix: prefix.into(),
                     entity: entity.into(),
                     has_value: has,
+                    has_icon: false,
+                    icon: slint::Image::default(),
                 });
             }
             for account in self.sorted_accounts(platform) {
@@ -1022,6 +1338,8 @@ impl App {
                     prefix: "".into(),
                     entity: "".into(),
                     has_value: false,
+                    has_icon: false,
+                    icon: slint::Image::default(),
                 });
                 for decl in sorted_terms(&account.variables) {
                     let name = naming::account_var_name(&platform.name, &account.alias, &decl.term)
@@ -1040,6 +1358,8 @@ impl App {
                         prefix: prefix.into(),
                         entity: entity.into(),
                         has_value: has,
+                        has_icon: false,
+                        icon: slint::Image::default(),
                     });
                 }
             }
@@ -1122,8 +1442,12 @@ impl App {
         if self.fault.is_some() {
             return ("fail", "台账不可读".to_string());
         }
-        let failed: Vec<&doctor::Check> =
-            self.report.checks.iter().filter(|check| !check.ok).collect();
+        let failed: Vec<&doctor::Check> = self
+            .report
+            .checks
+            .iter()
+            .filter(|check| !check.ok)
+            .collect();
         if failed.is_empty() {
             return ("ok", "自检通过".to_string());
         }
@@ -1154,20 +1478,30 @@ impl App {
             .collect();
         ui.set_cf_lines(ModelRc::new(VecModel::from(lines)));
         ui.set_cf_destructive(confirm_destructive(confirm));
-        ui.set_cf_confirm_label(confirm_label(confirm).into());
+        // 取图期间按钮停用、标签改成「获取中…」：任务在后台线程上，界面不能装作还能再点一次。
+        ui.set_cf_busy(self.icon_job.is_some());
+        if self.icon_job.is_some() {
+            ui.set_cf_confirm_label("获取中…".into());
+        } else {
+            ui.set_cf_confirm_label(confirm_label(confirm).into());
+        }
         ui.set_cf_error(self.confirm_error.clone().unwrap_or_default().into());
 
         let rename = matches!(
             confirm,
             Confirm::RenamePlatform(_) | Confirm::RenameAccount(_, _)
         );
-        ui.set_cf_show_input(rename);
+        let icon_url = matches!(confirm, Confirm::IconUrl(_));
+        ui.set_cf_show_input(rename || icon_url);
         if rename {
             let label = match confirm {
                 Confirm::RenamePlatform(_) => "新平台名",
                 _ => "新别名",
             };
             ui.set_cf_input_label(label.into());
+            ui.set_cf_input(self.rename_input.clone().into());
+        } else if icon_url {
+            ui.set_cf_input_label("图标网址".into());
             ui.set_cf_input(self.rename_input.clone().into());
         }
     }
@@ -1177,7 +1511,10 @@ impl App {
             Confirm::DeletePlatform(name) => format!("删除平台 {name}"),
             Confirm::DeleteAccount(platform, alias) => format!("删除条目 {platform} / {alias}"),
             Confirm::DeleteVar(platform, alias, term) => {
-                format!("删除变量 {}", self.var_name_of(platform, alias.as_deref(), term))
+                format!(
+                    "删除变量 {}",
+                    self.var_name_of(platform, alias.as_deref(), term)
+                )
             }
             Confirm::RestoreSnapshot(index) => match self.snaps.get(*index) {
                 Some(info) => format!("恢复到 {}", stamp(&info.created_at)),
@@ -1189,6 +1526,8 @@ impl App {
             },
             Confirm::RenamePlatform(name) => format!("平台改名 · {name}"),
             Confirm::RenameAccount(platform, alias) => format!("条目改名 · {platform} / {alias}"),
+            Confirm::IconUrl(platform) => format!("{platform} 的图标"),
+            Confirm::IconNotice(_) => "图标没装上".to_string(),
         }
     }
 
@@ -1258,7 +1597,11 @@ impl App {
                     "① 用快照里的台账覆盖现在这份；② 写回快照里的值；③ 删掉不属于快照的变量。"
                         .into(),
                 );
-                match self.snaps.get(*index).and_then(|info| read_snapshot(&info.file)) {
+                match self
+                    .snaps
+                    .get(*index)
+                    .and_then(|info| read_snapshot(&info.file))
+                {
                     Some(shot) => {
                         lines.push(format!(
                             "这份快照是 {} 的全量：{} 个变量。",
@@ -1311,6 +1654,14 @@ impl App {
                     lines.push("新名不能为空。".into());
                 }
             }
+            Confirm::IconUrl(_) => {
+                lines.push(
+                    "预填的是一个常见写法（官网域名 + /favicon.ico），不是内置配方；取不到就换成任意一张图片的直链。"
+                        .into(),
+                );
+                lines.push("图标只用来显示：不进台账、不进环境变量，删掉也不影响任何凭证。".into());
+            }
+            Confirm::IconNotice(message) => lines.push(message.clone()),
         }
         lines
     }
@@ -1340,12 +1691,8 @@ impl App {
                                     &decl.term
                                 )
                                 .unwrap_or_default(),
-                                naming::account_var_name(
-                                    &new_segment,
-                                    &account.alias,
-                                    &decl.term
-                                )
-                                .unwrap_or_default()
+                                naming::account_var_name(&new_segment, &account.alias, &decl.term)
+                                    .unwrap_or_default()
                             ));
                         }
                     }
@@ -1363,12 +1710,8 @@ impl App {
                                     &decl.term
                                 )
                                 .unwrap_or_default(),
-                                naming::account_var_name(
-                                    &platform.name,
-                                    &new_segment,
-                                    &decl.term
-                                )
-                                .unwrap_or_default()
+                                naming::account_var_name(&platform.name, &new_segment, &decl.term)
+                                    .unwrap_or_default()
                             ));
                         }
                     }
@@ -1395,7 +1738,54 @@ fn confirm_label(confirm: &Confirm) -> &'static str {
         Confirm::DeleteVar(_, _, _) => "删除变量",
         Confirm::RestoreSnapshot(_) => "恢复",
         Confirm::RenamePlatform(_) | Confirm::RenameAccount(_, _) => "确认改名",
+        Confirm::IconUrl(_) => "获取",
+        Confirm::IconNotice(_) => "知道了",
     }
+}
+
+/// 选一个本地图片文件（Windows 原生文件对话框）；取消返回 None。
+#[cfg(windows)]
+fn pick_image_file() -> Option<PathBuf> {
+    use windows_sys::Win32::UI::Controls::Dialogs::{
+        GetOpenFileNameW, OFN_EXPLORER, OFN_FILEMUSTEXIST, OFN_NOCHANGEDIR, OFN_PATHMUSTEXIST,
+        OPENFILENAMEW,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+
+    let filter: Vec<u16> = "图片\0*.png;*.jpg;*.jpeg;*.ico;*.bmp;*.gif;*.webp\0所有文件\0*.*\0\0"
+        .encode_utf16()
+        .collect();
+    let title: Vec<u16> = "选择平台图标\0".encode_utf16().collect();
+    let mut file_buffer = vec![0u16; 1024];
+
+    let mut spec: OPENFILENAMEW = unsafe { std::mem::zeroed() };
+    spec.lStructSize = std::mem::size_of::<OPENFILENAMEW>() as u32;
+    // 对话框没有属主窗口时会跑到后面去，拿当前前台窗口当属主（刚点过按钮，就是我们）。
+    spec.hwndOwner = unsafe { GetForegroundWindow() };
+    spec.lpstrFilter = filter.as_ptr();
+    spec.nFilterIndex = 1;
+    spec.lpstrFile = file_buffer.as_mut_ptr();
+    spec.nMaxFile = file_buffer.len() as u32;
+    spec.lpstrTitle = title.as_ptr();
+    // 不带 NOCHANGEDIR 的话，这个对话框会把进程的当前目录改成用户最后浏览的那个目录。
+    spec.Flags = OFN_EXPLORER | OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+
+    if unsafe { GetOpenFileNameW(&mut spec) } == 0 {
+        return None;
+    }
+    let end = file_buffer
+        .iter()
+        .position(|unit| *unit == 0)
+        .unwrap_or(file_buffer.len());
+    if end == 0 {
+        return None;
+    }
+    Some(PathBuf::from(String::from_utf16_lossy(&file_buffer[..end])))
+}
+
+#[cfg(not(windows))]
+fn pick_image_file() -> Option<PathBuf> {
+    None
 }
 
 fn sorted_terms(decls: &[VarDecl]) -> Vec<&VarDecl> {

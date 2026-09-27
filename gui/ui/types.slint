@@ -13,6 +13,9 @@ export struct TreeRow {
     prefix: string,
     entity: string,
     has-value: bool,
+    // 只有平台行带图标；其余行 has-icon 为 false，icon 是空图。
+    has-icon: bool,
+    icon: image,
 }
 
 // 通用列表行：S1 总览 / S2 平台级变量 / S3 账号变量 共用。

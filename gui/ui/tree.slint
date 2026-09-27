@@ -39,13 +39,30 @@ export component AssetTree inherits Rectangle {
                     spacing: Tokens.space-2;
                     alignment: start;
 
-                    // 变量行才显示值状态点；平台 / 账号行留同样宽度的空位保持对齐。
+                    // 首列固定 16px，是这一行的「标识列」：平台行摆它的图标，其余行摆值状态点。
+                    // 宽度必须统一 —— 否则带图标的平台行会把名字挤到比自己子行还靠右，层级就反了。
                     Rectangle {
-                        width: 8px;
-                        height: 8px;
-                        border-radius: 4px;
+                        width: 16px;
+                        height: 16px;
+                        background: transparent;
                         cross-axis-self-alignment: center;
-                        background: row.kind == "variable" && row.has-value ? Tokens.success : transparent;
+
+                        // 平台图标：它是这个平台的标识，不是装饰（图标在平台详情里配置）。
+                        if row.kind == "platform" && row.has-icon : Image {
+                            width: 100%;
+                            height: 100%;
+                            source: row.icon;
+                            image-fit: contain;
+                        }
+                        // 变量行才显示值状态点；其余行留空位保持对齐。
+                        if row.kind != "platform" || !row.has-icon : Rectangle {
+                            x: 4px;
+                            y: 4px;
+                            width: 8px;
+                            height: 8px;
+                            border-radius: 4px;
+                            background: row.kind == "variable" && row.has-value ? Tokens.success : transparent;
+                        }
                     }
 
                     if row.kind == "variable" : HorizontalLayout {
