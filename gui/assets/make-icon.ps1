@@ -1,8 +1,9 @@
-﻿# 生成 assets-gui 的应用图标（多尺寸 .ico）。
-# 图形只用几何形状、不依赖字体：圆角方块底 + 三段逐级缩进的短杠，
-# 对应界面左侧「平台 -> 账号 -> 变量」的三段缩进树。色值取自 tokens.slint 的强调色。
+﻿# 从美术母版 assets-gui-source.png 生成应用图标 assets-gui.ico（多尺寸）。
+# 母版是 1024x1024 的应用图标稿（圆角方块铺满画布、方块外全透明），换图标时替换这张图再跑本脚本。
+# 每个尺寸都从母版逐级折半后再收到目标尺寸：一步从 1024 缩到 16 会把结构糊掉。
 # 用法：powershell -File make-icon.ps1 [-Preview <目录>]
 param(
+    [string]$Source = (Join-Path $PSScriptRoot 'assets-gui-source.png'),
     [string]$Out = (Join-Path $PSScriptRoot 'assets-gui.ico'),
     [string]$Preview
 )
@@ -10,54 +11,33 @@ param(
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Drawing
 
-$accent = [System.Drawing.Color]::FromArgb(255, 0x02, 0x78, 0x7d)
-$ink = [System.Drawing.Color]::FromArgb(255, 0xf8, 0xfd, 0xfd)
-
-function New-RoundedPath([double]$x, [double]$y, [double]$w, [double]$h, [double]$r) {
-    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
-    if ($r -le 0) {
-        $path.AddRectangle((New-Object System.Drawing.RectangleF($x, $y, $w, $h)))
-        return $path
-    }
-    $d = 2 * $r
-    $path.AddArc($x, $y, $d, $d, 180, 90)
-    $path.AddArc($x + $w - $d, $y, $d, $d, 270, 90)
-    $path.AddArc($x + $w - $d, $y + $h - $d, $d, $d, 0, 90)
-    $path.AddArc($x, $y + $h - $d, $d, $d, 90, 90)
-    $path.CloseFigure()
-    return $path
+if (-not (Test-Path $Source)) {
+    throw "找不到母版图 $Source：图标由它生成，不能只改 .ico"
 }
 
-function New-IconBitmap([int]$size) {
-    $bmp = New-Object System.Drawing.Bitmap($size, $size, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
-    $g = [System.Drawing.Graphics]::FromImage($bmp)
-    try {
-        $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-        $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-        $g.Clear([System.Drawing.Color]::Transparent)
-
-        $bg = New-RoundedPath 0 0 $size $size ($size * 0.18)
-        $bgBrush = New-Object System.Drawing.SolidBrush($accent)
-        $g.FillPath($bgBrush, $bg)
-        $bg.Dispose(); $bgBrush.Dispose()
-
-        $thickness = [Math]::Max(2.0, [Math]::Round($size * 0.105))
-        $gap = [Math]::Max(1.0, [Math]::Round($thickness * 0.82))
-        $lefts = @(0.20, 0.30, 0.40)
-        $widths = @(0.60, 0.42, 0.24)
-        $blockTop = ($size - (3 * $thickness + 2 * $gap)) / 2
-        $barBrush = New-Object System.Drawing.SolidBrush($ink)
-        for ($i = 0; $i -lt 3; $i++) {
-            $bar = New-RoundedPath ($size * $lefts[$i]) ($blockTop + $i * ($thickness + $gap)) `
-                ([Math]::Max($thickness * 1.2, $size * $widths[$i])) $thickness ($thickness / 2)
-            $g.FillPath($barBrush, $bar)
-            $bar.Dispose()
-        }
-        $barBrush.Dispose()
-    } finally {
-        $g.Dispose()
+function New-ScaledBitmap([System.Drawing.Bitmap]$src, [int]$size) {
+    $cur = $src
+    while ($cur.Width -gt $size * 2) {
+        $n = [int]($cur.Width / 2)
+        $step = New-Object System.Drawing.Bitmap($n, $n, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+        $gs = [System.Drawing.Graphics]::FromImage($step)
+        $gs.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $gs.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+        $gs.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
+        $gs.DrawImage($cur, 0, 0, $n, $n)
+        $gs.Dispose()
+        if (-not [object]::ReferenceEquals($cur, $src)) { $cur.Dispose() }
+        $cur = $step
     }
-    return $bmp
+    $result = New-Object System.Drawing.Bitmap($size, $size, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    $g = [System.Drawing.Graphics]::FromImage($result)
+    $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+    $g.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
+    $g.DrawImage($cur, 0, 0, $size, $size)
+    $g.Dispose()
+    if (-not [object]::ReferenceEquals($cur, $src)) { $cur.Dispose() }
+    return $result
 }
 
 # 取 32bpp 位图里的一份 DIB 字节：BITMAPINFOHEADER + 自下而上的 BGRA 像素 + 全零 AND 掩码。
@@ -92,19 +72,24 @@ function Get-DibBytes([System.Drawing.Bitmap]$bmp) {
     return ,$ms.ToArray()
 }
 
+$master = [System.Drawing.Bitmap]::FromFile($Source)
 $sizes = @(16, 24, 32, 48, 64, 128, 256)
 $entries = @()
-foreach ($size in $sizes) {
-    $bmp = New-IconBitmap $size
-    try {
-        $entries += [pscustomobject]@{ size = $size; bytes = (Get-DibBytes $bmp) }
-        if ($Preview) {
-            New-Item -ItemType Directory -Force -Path $Preview | Out-Null
-            $bmp.Save((Join-Path $Preview "icon-$size.png"), [System.Drawing.Imaging.ImageFormat]::Png)
+try {
+    foreach ($size in $sizes) {
+        $bmp = New-ScaledBitmap $master $size
+        try {
+            $entries += [pscustomobject]@{ size = $size; bytes = (Get-DibBytes $bmp) }
+            if ($Preview) {
+                New-Item -ItemType Directory -Force -Path $Preview | Out-Null
+                $bmp.Save((Join-Path $Preview "icon-$size.png"), [System.Drawing.Imaging.ImageFormat]::Png)
+            }
+        } finally {
+            $bmp.Dispose()
         }
-    } finally {
-        $bmp.Dispose()
     }
+} finally {
+    $master.Dispose()
 }
 
 $ms = New-Object System.IO.MemoryStream
