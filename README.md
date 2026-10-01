@@ -39,7 +39,7 @@ Windows 上的本地资产 / 凭证台账。
 | 写入前快照 | `%USERPROFILE%\.assets-cli\snapshots\` |
 | 平台图标 | `%USERPROFILE%\.assets-cli\icons\` |
 | 导出钩子 | `%USERPROFILE%\.assets-cli\hydrate.ps1`、`emit-sh.ps1`、`hydrate.sh` |
-| AI skill | `%USERPROFILE%\.agents\skills\assets\` |
+| AI skill | `%USERPROFILE%\.codex\skills\assets\` |
 
 `data.json` 只保存名字和元数据，不保存凭证值。每次写入前都会先建快照；容量滚动时会保留最新快照。
 
@@ -54,7 +54,7 @@ Windows 上的本地资产 / 凭证台账。
 ```powershell
 $dir = "$env:LOCALAPPDATA\Programs\assets-cli"
 New-Item -ItemType Directory -Force $dir
-Expand-Archive -LiteralPath .\assets-cli-v0.1.0-windows-x86_64.zip -DestinationPath $dir -Force
+Expand-Archive -LiteralPath .\assets-cli-v0.1.1-windows-x86_64.zip -DestinationPath $dir -Force
 
 # 打开 Windows 的“编辑账户环境变量”，把 $dir 追加到用户 PATH
 & "$dir\assets.exe" init
@@ -195,7 +195,7 @@ Windows 用户级环境变量对同一用户的所有进程可见，因此它保
 core/     台账模型、存储、快照、安装、自检、平台图标
 cli/      assets.exe 命令面
 gui/      assets-gui.exe，Slint 软件渲染
-skill/    嵌入 CLI、可安装到 ~/.agents/skills/assets/ 的 skill 包
+skill/    嵌入 CLI、可安装到 ~/.codex/skills/assets/ 的 skill 包
 ```
 
 ## 开发与验证

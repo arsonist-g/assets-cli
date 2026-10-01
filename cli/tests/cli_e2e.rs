@@ -260,7 +260,7 @@ fn every_command_has_a_working_success_path() {
     let skill = env.run(&["skill", "install"], None);
     assert_eq!(skill.code, 0, "{}", skill.stderr);
     assert!(skill.stdout.contains("skill 包"), "{}", skill.stdout);
-    let skill_dir = env.home.join(".agents").join("skills").join("assets");
+    let skill_dir = env.home.join(".codex").join("skills").join("assets");
     assert!(skill_dir.join("SKILL.md").is_file());
     assert!(skill_dir.join("skill-zh.md").is_file());
     assert!(skill_dir.join("references").join("errors.md").is_file());
@@ -369,7 +369,7 @@ fn init_is_idempotent_and_doctor_passes_afterwards() {
         .join("PowerShell")
         .join("Microsoft.PowerShell_profile.ps1")
         .is_file());
-    let skill_dir = env.home.join(".agents").join("skills").join("assets");
+    let skill_dir = env.home.join(".codex").join("skills").join("assets");
     assert!(skill_dir.join("SKILL.md").is_file());
     assert!(skill_dir.join("skill-zh.md").is_file());
     assert!(skill_dir

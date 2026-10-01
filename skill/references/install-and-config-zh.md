@@ -14,7 +14,7 @@
 |---|---|---|
 | 钩子 | `~/.assets-cli/hydrate.ps1`、`~/.assets-cli/emit-sh.ps1`、`~/.assets-cli/hydrate.sh` | shell 启动时读注册表，导出 `ASSETS_CLI_*` 变量 |
 | profile 标记块 | PowerShell profile、`~/.bashrc`，以及 Git Bash 的登录 profile（`.bash_profile`、`.bash_login` 或 `.profile`） | 调用钩子，内容是 `# >>> assets-cli >>>` 标记块里的一行 |
-| skill | `~/.agents/skills/assets/` | 这份 skill 包 |
+| skill | `~/.codex/skills/assets/` | 这份 skill 包 |
 
 - 两条命令都不碰 PATH。二进制放在哪、怎么进的 PATH，属于人自己的安装步骤，不属于这个工具。
 - 内容过旧的标记块会被整块替换，所以写进块里的改动会在下次运行时丢掉。

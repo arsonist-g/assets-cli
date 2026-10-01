@@ -14,7 +14,7 @@ The person installs the binary and puts `assets` on PATH; nothing is configured 
 |---|---|---|
 | hooks | `~/.assets-cli/hydrate.ps1`, `~/.assets-cli/emit-sh.ps1`, `~/.assets-cli/hydrate.sh` | read the registry at shell start and export the `ASSETS_CLI_*` variables |
 | profile blocks | the PowerShell profile, `~/.bashrc`, and the Git Bash login profile (`.bash_profile`, `.bash_login`, or `.profile`) | call the hook, as one line inside a `# >>> assets-cli >>>` marker block |
-| skill | `~/.agents/skills/assets/` | this skill package |
+| skill | `~/.codex/skills/assets/` | this skill package |
 
 - Neither command touches PATH. Where the binary sits, and how it got on PATH, belongs to the person's install step rather than to this tool.
 - A marker block whose content is out of date is replaced whole, so an edit made inside the block is lost on the next run.

@@ -128,7 +128,7 @@ fn install_profile_blocks(layout: &Layout) -> Result<Step> {
     })
 }
 
-/// 只装 skill 包到 `~/.agents/skills/assets/`，逐文件幂等。
+/// 只装 skill 包到 `~/.codex/skills/assets/`，逐文件幂等。
 /// `assets init` 的第三步与独立命令 `assets skill install` 走的是同一个函数。
 pub fn install_skill(layout: &Layout) -> Result<Step> {
     let mut result = StepResult::Existing;

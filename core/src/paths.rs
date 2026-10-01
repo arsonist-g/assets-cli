@@ -182,7 +182,7 @@ impl Layout {
                 .join("Microsoft.PowerShell_profile.ps1"),
             bashrc: home.join(".bashrc"),
             bash_login_profile,
-            skill_dir: home.join(".agents").join("skills").join("assets"),
+            skill_dir: home.join(".codex").join("skills").join("assets"),
             home,
         }
     }
