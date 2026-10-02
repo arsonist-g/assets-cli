@@ -258,7 +258,7 @@ dependencies = [
 
 [[package]]
 name = "assets-cli"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "assets-core",
  "winreg",
@@ -266,7 +266,7 @@ dependencies = [
 
 [[package]]
 name = "assets-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "chrono",
  "image",
@@ -278,7 +278,7 @@ dependencies = [
 
 [[package]]
 name = "assets-gui"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "assets-core",
  "serde_json",

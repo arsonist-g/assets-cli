@@ -275,6 +275,32 @@ fn every_command_has_a_working_success_path() {
 }
 
 #[test]
+fn skill_install_reaches_the_claude_family_only_once_its_root_exists() {
+    let env = Env::new("skillfam");
+    let codex = env.home.join(".codex").join("skills").join("assets");
+    let claude = env.home.join(".claude").join("skills").join("assets");
+
+    // 家族根一个都不存在：退回 Codex 的历史落点，且不为 Claude Code 凭空造目录。
+    let first = env.run(&["skill", "install"], None);
+    assert_eq!(first.code, 0, "{}", first.stderr);
+    assert!(codex.join("SKILL.md").is_file(), "{}", first.stdout);
+    assert!(!env.home.join(".claude").exists());
+
+    // 家族根出现后再装一次：补上这一家，已存在的 Codex 那份报已存在。
+    fs::create_dir_all(env.home.join(".claude")).unwrap();
+    let second = env.run(&["skill", "install"], None);
+    assert_eq!(second.code, 0, "{}", second.stderr);
+    assert!(claude.join("SKILL.md").is_file(), "{}", second.stdout);
+    assert!(claude.join("references").join("errors.md").is_file());
+    assert!(second.stdout.contains("（已存在）"), "{}", second.stdout);
+    assert_eq!(
+        fs::read_to_string(claude.join("SKILL.md")).unwrap(),
+        fs::read_to_string(codex.join("SKILL.md")).unwrap(),
+        "两家的包必须逐字节相同"
+    );
+}
+
+#[test]
 fn exit_code_2_covers_usage_and_missing_references() {
     let env = Env::new("code2");
     assert_eq!(env.run(&[], None).code, 2);

@@ -13,6 +13,16 @@ pub const DATA_DIR_ENV: &str = "ASSETS_CLI_DATA";
 pub const REGISTRY_ENV: &str = "ASSETS_CLI_REGISTRY";
 /// 数据目录与钩子脚本的目录名（位于用户主目录下）。
 pub const HOOK_DIR_NAME: &str = ".assets-cli";
+
+/// skill 包在各家族技能根下的目录名，与 `SKILL.md` frontmatter 里的 `name` 一致。
+pub const SKILL_DIR_NAME: &str = "assets";
+
+/// 认得的 agent 家族：`(主目录下的家族根, 该家族的技能根)`。
+/// 两家的技能根彼此独立，各装各的，删掉一家不影响另一家。
+pub const SKILL_FAMILIES: &[(&str, &str)] = &[(".claude", "skills"), (".codex", "skills")];
+
+/// 一个家族根都不存在时的落点：Codex 的专属技能目录，也是本命令历史上的唯一落点。
+const SKILL_FALLBACK_FAMILY: (&str, &str) = (".codex", "skills");
 /// 默认注册表根。
 pub const DEFAULT_REGISTRY_SPEC: &str = r"HKCU\Environment";
 
@@ -157,8 +167,6 @@ pub struct Layout {
     pub bashrc: PathBuf,
     /// Git Bash 登录 shell 读的 profile：`.bash_profile` → `.bash_login` → `.profile`。
     pub bash_login_profile: PathBuf,
-    /// skill 包目录（assets init 落整包：入口 + 中文对照 + references/）。
-    pub skill_dir: PathBuf,
 }
 
 impl Layout {
@@ -182,7 +190,6 @@ impl Layout {
                 .join("Microsoft.PowerShell_profile.ps1"),
             bashrc: home.join(".bashrc"),
             bash_login_profile,
-            skill_dir: home.join(".codex").join("skills").join("assets"),
             home,
         }
     }
@@ -207,6 +214,25 @@ impl Layout {
             .iter()
             .map(|name| self.hook_dir.join(name))
             .collect()
+    }
+
+    /// skill 包的落点：每个**家族根目录已存在**的 agent 一个（`~/.claude/skills/assets`、
+    /// `~/.codex/skills/assets`）。
+    ///
+    /// 按存在性挑，而不是无条件装两处：给一个没装的 agent 凭空造出技能目录，是在用户 home 里留垃圾。
+    /// 一个家族都没有时退回 `~/.codex/skills/assets` —— 那是本命令历史上的唯一落点，
+    /// 让只为 Codex 准备的机器在升级后行为不变。
+    pub fn skill_dirs(&self) -> Vec<PathBuf> {
+        let mut dirs: Vec<PathBuf> = SKILL_FAMILIES
+            .iter()
+            .filter(|(root, _)| self.home.join(root).is_dir())
+            .map(|(root, skills)| self.home.join(root).join(skills).join(SKILL_DIR_NAME))
+            .collect();
+        if dirs.is_empty() {
+            let (root, skills) = SKILL_FALLBACK_FAMILY;
+            dirs.push(self.home.join(root).join(skills).join(SKILL_DIR_NAME));
+        }
+        dirs
     }
 
     pub fn ps_profile_dir(&self) -> PathBuf {

@@ -14,8 +14,9 @@ The person installs the binary and puts `assets` on PATH; nothing is configured 
 |---|---|---|
 | hooks | `~/.assets-cli/hydrate.ps1`, `~/.assets-cli/emit-sh.ps1`, `~/.assets-cli/hydrate.sh` | read the registry at shell start and export the `ASSETS_CLI_*` variables |
 | profile blocks | the PowerShell profile, `~/.bashrc`, and the Git Bash login profile (`.bash_profile`, `.bash_login`, or `.profile`) | call the hook, as one line inside a `# >>> assets-cli >>>` marker block |
-| skill | `~/.codex/skills/assets/` | this skill package |
+| skill | every agent family present: `~/.claude/skills/assets/`, `~/.codex/skills/assets/` | this skill package |
 
+- The skill goes only into a family whose root directory already exists (`~/.claude`, `~/.codex`), so no skill directory is invented for an agent that is not installed. When neither root exists it falls back to `~/.codex/skills/assets/`. A machine that later gains another agent gets the skill on the next `assets init` or `assets skill install`.
 - Neither command touches PATH. Where the binary sits, and how it got on PATH, belongs to the person's install step rather than to this tool.
 - A marker block whose content is out of date is replaced whole, so an edit made inside the block is lost on the next run.
 - The hooks export only names matching `^ASSETS_CLI_[^_]+_.+$`, which is three segments or more. A single segment switch such as the ones below never reaches a session.

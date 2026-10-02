@@ -499,12 +499,13 @@ fn init_is_idempotent_and_doctor_sees_the_hook() {
     assert!(layout.hook_dir.join("hydrate.ps1").is_file());
     assert!(layout.hook_dir.join("emit-sh.ps1").is_file());
     assert!(layout.hook_dir.join("hydrate.sh").is_file());
-    assert!(layout.skill_dir.join("SKILL.md").is_file());
-    assert!(layout
-        .skill_dir
-        .join("references")
-        .join("errors.md")
-        .is_file());
+    let skill_dir = layout
+        .skill_dirs()
+        .into_iter()
+        .next()
+        .expect("至少有一个 skill 落点");
+    assert!(skill_dir.join("SKILL.md").is_file());
+    assert!(skill_dir.join("references").join("errors.md").is_file());
 
     let second = init::run(&layout).unwrap();
     for step in &second.steps {
@@ -520,6 +521,37 @@ fn init_is_idempotent_and_doctor_sees_the_hook() {
     let after = doctor::run(&ctx, &layout);
     assert!(check(&after, "hook_installed").ok, "{:?}", after);
     assert!(after.ok, "{:?}", after);
+}
+
+#[test]
+fn skill_lands_in_every_agent_family_present_and_never_invents_one() {
+    let fixture = Fixture::new("skill families");
+    let layout = fixture.layout();
+    let claude = fixture.home.join(".claude").join("skills").join("assets");
+    let codex = fixture.home.join(".codex").join("skills").join("assets");
+
+    // 一个家族根都没有：退回历史落点，且不为任何一家凭空造目录。
+    assert_eq!(layout.skill_dirs(), vec![codex.clone()]);
+    init::install_skill(&layout).unwrap();
+    assert!(codex.join("SKILL.md").is_file());
+    assert!(!fixture.home.join(".claude").exists());
+
+    // 家族根存在才装进去：`.claude` 出现后两家各一份，内容与包内一致。
+    fs::create_dir_all(fixture.home.join(".claude")).unwrap();
+    assert_eq!(layout.skill_dirs(), vec![claude.clone(), codex.clone()]);
+    init::install_skill(&layout).unwrap();
+    for dir in [&claude, &codex] {
+        assert!(dir.join("SKILL.md").is_file(), "{}", dir.display());
+        assert!(
+            dir.join("references").join("errors.md").is_file(),
+            "{}",
+            dir.display()
+        );
+    }
+    assert_eq!(
+        fs::read_to_string(claude.join("SKILL.md")).unwrap(),
+        fs::read_to_string(codex.join("SKILL.md")).unwrap()
+    );
 }
 
 #[test]

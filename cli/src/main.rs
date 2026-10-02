@@ -24,7 +24,7 @@ const USAGE: &str = r#"assets — 本机资产台账
 环境
   assets doctor [--json]
   assets init [--json]             安装与修复：钩子脚本、profile 标记块、skill 包
-  assets skill install [--json]    只装 skill 包到 ~/.codex/skills/
+  assets skill install [--json]    只装 skill 包到已存在的家族技能目录（~/.claude/skills/、~/.codex/skills/）
 
 退出码
   0 成功 / 2 用法或引用不存在 / 3 校验失败 / 4 存储失败 / 5 冲突 / 6 预算超限 / 7 自检未通过

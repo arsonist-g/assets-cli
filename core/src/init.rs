@@ -128,19 +128,21 @@ fn install_profile_blocks(layout: &Layout) -> Result<Step> {
     })
 }
 
-/// 只装 skill 包到 `~/.codex/skills/assets/`，逐文件幂等。
+/// 只装 skill 包，逐文件幂等：落点是 `Layout::skill_dirs()`（已存在的 agent 家族技能根，各一份）。
 /// `assets init` 的第三步与独立命令 `assets skill install` 走的是同一个函数。
 pub fn install_skill(layout: &Layout) -> Result<Step> {
     let mut result = StepResult::Existing;
     let mut detail = Vec::new();
-    for (relative, content) in SKILL_FILES {
-        // 逐段 join：常量里的路径用 /，在 Windows 上不要显示出混用的分隔符。
-        let path = relative
-            .split('/')
-            .fold(layout.skill_dir.clone(), |dir, part| dir.join(part));
-        let outcome = write_file(&path, content)?;
-        result = result.merge(outcome);
-        detail.push(format!("{}（{}）", path.display(), outcome.label()));
+    for skill_dir in layout.skill_dirs() {
+        for (relative, content) in SKILL_FILES {
+            // 逐段 join：常量里的路径用 /，在 Windows 上不要显示出混用的分隔符。
+            let path = relative
+                .split('/')
+                .fold(skill_dir.clone(), |dir, part| dir.join(part));
+            let outcome = write_file(&path, content)?;
+            result = result.merge(outcome);
+            detail.push(format!("{}（{}）", path.display(), outcome.label()));
+        }
     }
     Ok(Step {
         id: "skill",
